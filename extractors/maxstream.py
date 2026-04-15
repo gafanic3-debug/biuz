@@ -169,92 +169,122 @@ class MaxstreamExtractor:
         parsed = urlparse(link)
         domain = parsed.netloc
         
-        # Resolve real IP via DoH to bypass local DNS hijacking
+        # Resolve real IPs via DoH to bypass local DNS hijacking
         real_ips = await self._resolve_doh(domain)
+        if not real_ips:
+            raise ExtractorError(f"DoH failed to resolve {domain}")
         
-        chrome_args = ["--no-sandbox", "--disable-setuid-sandbox", "--disable-gpu"]
-        if real_ips:
-            ip = real_ips[0]
-            chrome_args.append(f"--host-resolver-rules=MAP {domain} {ip}")
-            logger.info(f"Playwright: forcing {domain} -> {ip} via host-resolver-rules")
-        
-        logger.info(f"Playwright: loading uprot page {link}")
-        async with async_playwright() as pw:
-            browser = await pw.chromium.launch(
-                headless=True,
-                args=chrome_args,
-            )
+        # Try each resolved IP
+        last_error = None
+        for ip in real_ips[:3]:
+            chrome_args = [
+                "--no-sandbox", "--disable-setuid-sandbox", "--disable-gpu",
+                "--disable-dev-shm-usage",
+                # Anti-detection
+                "--disable-blink-features=AutomationControlled",
+                f"--host-resolver-rules=MAP {domain} {ip}",
+            ]
+            logger.info(f"Playwright: trying {domain} -> {ip}")
+            
             try:
-                context = await browser.new_context(
-                    user_agent=self.base_headers["user-agent"],
-                    viewport={"width": 1366, "height": 768},
-                )
-                page = await context.new_page()
-                
-                resp = await page.goto(link, wait_until="domcontentloaded", timeout=30000)
-                
-                # If Cloudflare challenge, wait for it to resolve
-                if resp and resp.status == 403:
-                    logger.info("Playwright: Cloudflare challenge detected, waiting...")
+                async with async_playwright() as pw:
+                    # Use headed mode (xvfb provides display) — harder for CF to detect
+                    browser = await pw.chromium.launch(
+                        headless=False,
+                        args=chrome_args,
+                    )
                     try:
-                        await page.wait_for_load_state("networkidle", timeout=15000)
-                    except Exception:
-                        pass
-                
-                # Log page URL and title for debug
-                page_url = page.url
-                page_title = await page.title()
-                logger.info(f"Playwright: page loaded - URL: {page_url}, Title: {page_title}")
-                
-                # Strategy 1: Find specific continue/redirect link (NOT generic <a>)
-                href = await page.evaluate("""() => {
-                    // Look for links specifically pointing to maxstream or stayonline
-                    let a = document.querySelector('a[href*="maxstream"]')
-                         || document.querySelector('a[href*="stayonline"]');
-                    if (a) return a.href;
-                    
-                    // Look for button-like continue links
-                    let btn = document.querySelector('a.button, a.btn, a[class*="continue"], a[class*="redirect"]');
-                    if (btn) return btn.href;
-                    
-                    // Look for centered/main content links (not nav)
-                    let mainLinks = document.querySelectorAll('main a, .content a, #content a, .container a');
-                    for (let link of mainLinks) {
-                        let h = link.href;
-                        if (h && !h.includes('uprot.net') && (h.includes('maxstream') || h.includes('stayonline') || h.includes('/e/') || h.includes('/video/'))) {
-                            return h;
-                        }
-                    }
-                    return null;
-                }""")
-                
-                if href:
-                    logger.info(f"Playwright extracted uprot redirect: {href}")
-                    return href
-                
-                # Strategy 2: Click any visible button/link and follow redirect
-                try:
-                    await page.click("a.button, a.btn, button.button, input[type='submit'], a[href*='maxstream'], a[href*='stayonline']", timeout=5000)
-                    await page.wait_for_load_state("domcontentloaded", timeout=10000)
-                    new_url = page.url
-                    if new_url != page_url:
-                        logger.info(f"Playwright: clicked through to: {new_url}")
-                        return new_url
-                except Exception as e:
-                    logger.debug(f"Playwright: click strategy failed: {e}")
-                
-                # Strategy 3: Check if already redirected
-                current_url = page.url
-                if "maxstream" in current_url or "stayonline" in current_url:
-                    logger.info(f"Playwright followed redirect to: {current_url}")
-                    return current_url
-                
-                # Log full page for debug
-                content = await page.content()
-                logger.error(f"Playwright: could not find redirect. Page URL: {current_url}, Content (500): {content[:500]}")
-                raise ExtractorError(f"Playwright could not find redirect on uprot page")
-            finally:
-                await browser.close()
+                        context = await browser.new_context(
+                            user_agent=self.base_headers["user-agent"],
+                            viewport={"width": 1366, "height": 768},
+                            locale="en-US",
+                        )
+                        
+                        # Stealth: remove webdriver flag
+                        await context.add_init_script("""
+                            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                            window.chrome = {runtime: {}};
+                            Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
+                            Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
+                        """)
+                        
+                        page = await context.new_page()
+                        resp = await page.goto(link, wait_until="domcontentloaded", timeout=30000)
+                        
+                        status = resp.status if resp else 0
+                        logger.info(f"Playwright: response status {status} from IP {ip}")
+                        
+                        # If Cloudflare challenge/block, wait for possible JS redirect
+                        if status == 403:
+                            logger.info("Playwright: CF block, waiting for JS challenge resolution...")
+                            try:
+                                await page.wait_for_load_state("networkidle", timeout=10000)
+                                # Check if page changed after challenge
+                                new_content = await page.content()
+                                if "Access denied" in new_content:
+                                    logger.warning(f"Playwright: hard CF block on IP {ip}, trying next")
+                                    last_error = ExtractorError(f"Cloudflare blocked IP {ip}")
+                                    continue  # Try next IP
+                            except Exception:
+                                last_error = ExtractorError(f"Cloudflare blocked IP {ip}")
+                                continue
+                        
+                        # Log page URL and title for debug
+                        page_url = page.url
+                        page_title = await page.title()
+                        logger.info(f"Playwright: page loaded - URL: {page_url}, Title: {page_title}")
+                        
+                        # Strategy 1: Find specific continue/redirect link (NOT generic <a>)
+                        href = await page.evaluate("""() => {
+                            let a = document.querySelector('a[href*="maxstream"]')
+                                 || document.querySelector('a[href*="stayonline"]');
+                            if (a) return a.href;
+                            
+                            let btn = document.querySelector('a.button, a.btn, a[class*="continue"], a[class*="redirect"]');
+                            if (btn) return btn.href;
+                            
+                            let mainLinks = document.querySelectorAll('main a, .content a, #content a, .container a');
+                            for (let link of mainLinks) {
+                                let h = link.href;
+                                if (h && !h.includes('uprot.net') && (h.includes('maxstream') || h.includes('stayonline') || h.includes('/e/') || h.includes('/video/'))) {
+                                    return h;
+                                }
+                            }
+                            return null;
+                        }""")
+                        
+                        if href:
+                            logger.info(f"Playwright extracted uprot redirect: {href}")
+                            return href
+                        
+                        # Strategy 2: Click any visible button/link and follow redirect
+                        try:
+                            await page.click("a.button, a.btn, button.button, input[type='submit'], a[href*='maxstream'], a[href*='stayonline']", timeout=5000)
+                            await page.wait_for_load_state("domcontentloaded", timeout=10000)
+                            new_url = page.url
+                            if new_url != page_url:
+                                logger.info(f"Playwright: clicked through to: {new_url}")
+                                return new_url
+                        except Exception as e:
+                            logger.debug(f"Playwright: click strategy failed: {e}")
+                        
+                        # Strategy 3: Check if already redirected
+                        current_url = page.url
+                        if "maxstream" in current_url or "stayonline" in current_url:
+                            logger.info(f"Playwright followed redirect to: {current_url}")
+                            return current_url
+                        
+                        # No redirect found on this IP
+                        content = await page.content()
+                        logger.warning(f"Playwright: no redirect found on IP {ip}. Content (500): {content[:500]}")
+                        last_error = ExtractorError("No redirect link found on uprot page")
+                    finally:
+                        await browser.close()
+            except Exception as e:
+                logger.warning(f"Playwright: IP {ip} failed: {e}")
+                last_error = e
+        
+        raise last_error or ExtractorError("All IPs exhausted for uprot.net")
 
     async def _resolve_stayonline(self, stayonline_url: str) -> str:
         """Resolve stayonline.pro wrapper to get final maxstream URL."""
