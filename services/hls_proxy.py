@@ -98,6 +98,7 @@ if MPD_MODE == "legacy":
 ) = None, None, None, None, None
 StreamHGExtractor = None
 CinemaCityExtractor = None
+DeltabitExtractor = None
 
 
 logger = logging.getLogger(__name__)
@@ -297,6 +298,12 @@ try:
 except Exception as e:
     print(f"❌ CinemaCityExtractor FAILED to load: {e}")
     CinemaCityExtractor = None
+
+try:
+    from extractors.deltabit import DeltabitExtractor
+    logger.info("✅ DeltabitExtractor module loaded.")
+except ImportError:
+    logger.warning("⚠️ DeltabitExtractor module not found.")
 
 
 class HLSProxy:
@@ -635,6 +642,12 @@ class HLSProxy:
                 elif host == "streamwish":
                     if key not in self.extractors:
                         self.extractors[key] = StreamWishExtractor(
+                            request_headers, proxies=GLOBAL_PROXIES
+                        )
+                    return self.extractors[key]
+                elif host == "deltabit":
+                    if key not in self.extractors:
+                        self.extractors[key] = DeltabitExtractor(
                             request_headers, proxies=GLOBAL_PROXIES
                         )
                     return self.extractors[key]
@@ -1576,8 +1589,9 @@ class HLSProxy:
                         "vidmoly",
                         "vidoza",
                         "turbovidplay",
-                        "livetv",
-                        "f16px",
+                         "livetv",
+                         "deltabit",
+                         "f16px",
                     ],
                     "examples": [
                         f"{request.scheme}://{request.host}/extractor/video?d=https://vavoo.to/channel/123",
