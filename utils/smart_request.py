@@ -87,11 +87,22 @@ async def smart_request(cmd: str, url: str, headers: Optional[Dict] = None, post
 
     logger.info(f"SmartRequest: Uso FlareSolverr per {url}")
     endpoint = f"{FLARESOLVERR_URL.rstrip('/')}/v1"
+    
+    # ✅ FIX: Estrai i cookie dagli header per passarli a FlareSolverr
+    fs_cookies = []
+    cookie_header = headers.get("Cookie") or headers.get("cookie")
+    if cookie_header:
+        for cookie_item in cookie_header.split(";"):
+            if "=" in cookie_item:
+                k, v = cookie_item.strip().split("=", 1)
+                fs_cookies.append({"name": k, "value": v})
+
     payload = {
         "cmd": cmd,
         "url": url,
         "maxTimeout": (FLARESOLVERR_TIMEOUT + 60) * 1000,
     }
+    if fs_cookies: payload["cookies"] = fs_cookies
     if post_data: payload["postData"] = post_data
     if proxy:
         payload["proxy"] = {"url": proxy}
@@ -108,11 +119,17 @@ async def smart_request(cmd: str, url: str, headers: Optional[Dict] = None, post
                     if data.get("status") == "ok":
                         solution = data.get("solution", {})
                         cookies_list = solution.get("cookies", [])
+                        
+                        # ✅ DEBUG: Vediamo cosa risponde esattamente FlareSolverr
+                        logger.debug(f"🚀 FlareSolverr solution cookies: {len(cookies_list)}")
+                        
                         cookies_dict = {c["name"]: c["value"] for c in cookies_list}
                         return {
                             "html": solution.get("response", ""),
                             "cookies": cookies_dict
                         }
+                    else:
+                        logger.warning(f"SmartRequest: FlareSolverr ha risposto con errore: {data.get('message')}")
         except Exception as e:
             logger.error(f"SmartRequest: FlareSolverr fallito: {e}")
 
