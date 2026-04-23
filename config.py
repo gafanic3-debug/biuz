@@ -182,6 +182,7 @@ def get_ssl_setting_for_url(url: str, transport_routes: list) -> bool:
 
 
 ENABLE_WARP = os.environ.get("ENABLE_WARP", "false").lower() == "true"
+WARP_PROXY_URL = os.environ.get("WARP_PROXY_URL", "").strip() or None
 
 _default_warp_exclude_domains = [
     "cinemacity.cc",
