@@ -101,11 +101,11 @@ proot-distro login $DISTRO_NAME -- bash -c '
     EP_REPO="https://github.com/realbestia1/EasyProxy.git"
 
     if [ -d "$EP_DIR" ]; then
-        echo "[⚠️] EasyProxy already exists, pulling latest from dev..."
-        cd "$EP_DIR" && git fetch origin && git checkout dev && git pull origin dev || true
+        echo "[⚠️] EasyProxy already exists, pulling latest..."
+        cd "$EP_DIR" && git pull || true
     else
-        echo "[ℹ️] Cloning EasyProxy (dev branch)..."
-        git clone -b dev "$EP_REPO" "$EP_DIR"
+        echo "[ℹ️] Cloning EasyProxy..."
+        git clone "$EP_REPO" "$EP_DIR"
     fi
 
     echo "[ℹ️] Setting up python pip config..."
@@ -251,9 +251,9 @@ echo "🔄 Updating EasyProxy..."
 proot-distro login ubuntu -- bash -c '
     source /root/ep_venv/bin/activate 2>/dev/null || true
     cd /root/EasyProxy
-    git fetch origin && git checkout dev && git pull origin dev
+    git pull
     pip install --no-cache-dir --ignore-installed -r requirements.txt --break-system-packages 2>&1 | tail -3
-    echo "✅ EasyProxy updated (dev branch)!"
+    echo "✅ EasyProxy updated!"
 '
 UPD_EOF
 chmod +x "$PREFIX/bin/easyproxy-update"
