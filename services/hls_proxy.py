@@ -1897,9 +1897,7 @@ class HLSProxy:
             extractor_kwargs.pop('d', None)   # Remove to avoid duplicate argument error
             extractor_kwargs['request_headers'] = dict(request.headers)
 
-            extractor = await self.get_extractor(
-                url, dict(request.headers), host=host_param
-            )
+            bypass_warp = request.query.get("warp", "").lower() == "off"
             extractor = await self.get_extractor(
                 url, dict(request.headers), host=host_param
             )
