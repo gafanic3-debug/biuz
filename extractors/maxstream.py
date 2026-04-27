@@ -179,7 +179,9 @@ class MaxstreamExtractor:
             try:
                 # Use a dummy probe to get current proxies without full validation wait
                 free_proxies = await self.proxy_manager.get_proxies(lambda x: True)
-                for p in free_proxies[:3]: # Try first 3 available
+                # Randomize to avoid hitting the same failing proxies in sequence
+                random.shuffle(free_proxies)
+                for p in free_proxies[:10]: # Try more proxies
                     paths.append({"proxy": p, "use_ip": None})
             except Exception as e:
                 logger.debug(f"Failed to get free proxies: {e}")
@@ -231,12 +233,20 @@ class MaxstreamExtractor:
                                 fs_headers["Cookie"] = "; ".join([f"{k}={v}" for k, v in self.cookies.items()])
 
                             result = await smart_request(fs_cmd, url, headers=fs_headers, post_data=kwargs.get("data"), proxies=fs_proxies)
-                            
+
                             if isinstance(result, dict):
                                 self.cookies.update(result.get("cookies", {}))
                                 html = result.get("html", "")
+                                
+                                # Check if FlareSolverr returned a browser error page (Chromium Authors style)
+                                if "Chromium Authors" in html or "id=\"main-frame-error\"" in html:
+                                    logger.warning(f"FlareSolverr returned a browser error page on this path, trying next...")
+                                    last_error = "FlareSolverr browser error page"
+                                    html = ""
+
                                 if html: return html
                             
+                            last_error = "FlareSolverr challenge failed or empty response"
                             logger.warning(f"FlareSolverr failed for {url} on this path, trying next path...")
                             continue
 
@@ -263,10 +273,12 @@ class MaxstreamExtractor:
                             # Check if FlareSolverr returned a browser error page (Chromium Authors style)
                             if "Chromium Authors" in html or "id=\"main-frame-error\"" in html:
                                 logger.warning(f"FlareSolverr returned a browser error page on this path, trying next...")
+                                last_error = "FlareSolverr browser error page"
                                 html = ""
 
                             if html: return html
                             
+                        last_error = "FlareSolverr block/challenge failed"
                         logger.warning(f"FlareSolverr failed for {url} on this path, trying next path...")
                         continue
                     else:
