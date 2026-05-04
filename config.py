@@ -299,7 +299,7 @@ MAX_RECORDING_DURATION = int(os.environ.get("MAX_RECORDING_DURATION", 28800))
 RECORDINGS_RETENTION_DAYS = int(os.environ.get("RECORDINGS_RETENTION_DAYS", 7))
 
 # --- Version/Mode Configuration ---
-APP_VERSION = "2.6.25"
+APP_VERSION = "2.6.26"
 
 _has_solvers = os.path.exists("flaresolverr")
 VERSION_MODE = "Full" if _has_solvers else "Light"
