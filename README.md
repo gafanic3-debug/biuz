@@ -59,6 +59,10 @@ The easiest way to get EasyProxy plus solvers on Windows:
 #### 📱 Termux (Android)
 EasyProxy plus solvers is fully supported on Android via Termux + Ubuntu proot.
 
+Android users can also install the APK build if they prefer a simpler app-style setup. The APK is convenient, but it is not as complete as the Python/Termux version, so Termux remains the recommended option for full functionality.
+
+For Termux, full functionality requires a 64-bit Android device. On 32-bit devices, some components and solvers may not work.
+
 1.  **Install Termux** from [F-Droid](https://f-droid.org/en/packages/com.termux/) (do NOT use Play Store version).
 2.  **Run the One-Shot Setup**:
     ```bash

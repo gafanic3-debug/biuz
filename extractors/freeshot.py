@@ -4,10 +4,7 @@ import asyncio
 import urllib.parse
 import aiohttp
 from aiohttp import ClientSession, ClientTimeout, TCPConnector
-from aiohttp_socks import ProxyConnector
-
 from config import FLARESOLVERR_URL, FLARESOLVERR_TIMEOUT, get_proxy_for_url, TRANSPORT_ROUTES, GLOBAL_PROXIES, get_connector_for_proxy
-from utils.smart_request import smart_request
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +40,13 @@ class FreeshotExtractor:
             self.session = ClientSession(connector=connector, timeout=timeout)
         return self.session
 
+    async def _fetch_text(self, url: str, headers: dict) -> str:
+        session = await self._get_session(url)
+        async with session.get(url, headers=headers, timeout=15) as resp:
+            if resp.status == 200:
+                return await resp.text()
+            raise ExtractorError(f"Freeshot fetch failed for {url}: HTTP {resp.status}")
+
     async def extract(self, url, **kwargs):
         """
         Estrae l'URL m3u8 da un link popcdn.day o da un codice canale.
@@ -65,24 +69,11 @@ class FreeshotExtractor:
                 logger.debug(f"FreeshotExtractor: Estratto codice {channel_code} da URL embed")
             else:
                 # Altrimenti scarica la pagina principale per trovare l'iframe
-                # Usiamo FlareSolverr se disponibile, altrimenti fallback su aiohttp
                 content = ""
-                if self.flaresolverr_url:
-                    try:
-                        logger.debug(f"FreeshotExtractor: Uso FlareSolverr per estrarre codice da {url}")
-                        content = await smart_request("request.get", url, headers=self.base_headers, proxies=self.proxies)
-                        content = content["html"] if isinstance(content, dict) and content.get("html") else content
-                    except Exception as e:
-                        logger.warning(f"FreeshotExtractor: FlareSolverr fallito per freeshot.live: {e}")
-                
-                if not content:
-                    session = await self._get_session(url)
-                    try:
-                        async with session.get(url, headers=self.base_headers, timeout=15) as resp:
-                            if resp.status == 200:
-                                content = await resp.text()
-                    except Exception as e:
-                        logger.warning(f"FreeshotExtractor: Errore nel recupero codice da freeshot.live: {e}")
+                try:
+                    content = await self._fetch_text(url, self.base_headers)
+                except Exception as e:
+                    logger.warning(f"FreeshotExtractor: Errore nel recupero codice da freeshot.live: {e}")
 
                 if content:
                     # 1. Cerca iframe popcdn diretto: //popcdn.day/go.php?stream=ZonaDAZN
@@ -137,16 +128,13 @@ class FreeshotExtractor:
         body = ""
         ua = self.base_headers["User-Agent"]
         
-        session = await self._get_session(target_url)
-        # Retry logic with exponential backoff for direct request
         try:
-            body = await smart_request("request.get", target_url, headers=self.base_headers, proxies=self.proxies)
+            body = await self._fetch_text(target_url, self.base_headers)
         except Exception as e:
             raise ExtractorError(f"Freeshot extraction failed for {target_url}: {e}")
         
         # Token extraction (no need for try-except wrapper since ExtractorError propagates)
         # Nuova estrazione token via currentToken
-        body = body["html"] if isinstance(body, dict) and body.get("html") else body
         match = re.search(r'streamUrl\s*:\s*"([^"]+)"', body)
         if not match:
             # Fallback al vecchio metodo iframe

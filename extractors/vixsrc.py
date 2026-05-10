@@ -10,20 +10,12 @@ from typing import Any, Dict
 from urllib.parse import parse_qs, parse_qsl, urlencode, urljoin, urlparse, urlunparse
 
 import aiohttp
-import cloudscraper
 from aiohttp import ClientSession, ClientTimeout, TCPConnector
 from aiohttp_socks import ProxyError as AioProxyError
 from python_socks import ProxyError as PyProxyError
 from config import get_proxy_for_url, TRANSPORT_ROUTES, GLOBAL_PROXIES, get_connector_for_proxy, SELECTED_PROXY_CONTEXT
 
 logger = logging.getLogger(__name__)
-
-_FREE_PROXY_MAX_FETCH = int(os.environ.get("VIXSRC_FREE_PROXY_MAX_FETCH", "0"))
-_FREE_PROXY_MAX_GOOD = int(os.environ.get("VIXSRC_FREE_PROXY_MAX_GOOD", "0"))
-
-from utils.proxy_manager import FreeProxyManager
-
-
 
 
 class ExtractorError(Exception):
@@ -41,28 +33,6 @@ class VixSrcExtractor:
         self.proxies = proxies or GLOBAL_PROXIES
         self.is_vixsrc = True
         self.last_used_proxy = None
-        self.proxy_manager = FreeProxyManager.get_instance(
-            "vixsrc",
-            [
-                "https://raw.githubusercontent.com/proxifly/free-proxy-list/refs/heads/main/proxies/all/data.txt",
-                "https://api.proxyscrape.com/v4/free-proxy-list/get?request=display_proxies&proxy_format=protocolipport&format=text",
-                "https://raw.githubusercontent.com/TheSpeedX/SOCKS-List/master/socks5.txt",
-                "https://raw.githubusercontent.com/TheSpeedX/SOCKS-List/master/socks4.txt",
-                "https://raw.githubusercontent.com/TheSpeedX/SOCKS-List/master/http.txt",
-                "https://raw.githubusercontent.com/hookzof/socks5_list/master/proxy.txt",
-                "https://raw.githubusercontent.com/ShiftyTR/Proxy-List/master/socks5.txt",
-                "https://raw.githubusercontent.com/jetkai/proxy-list/main/online-proxies/txt/proxies.txt",
-                "https://raw.githubusercontent.com/clarketm/proxy-list/master/proxy-list-raw.txt",
-                "https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/all.txt",
-                "https://raw.githubusercontent.com/mmpx12/proxy-list/master/https.txt",
-                "https://raw.githubusercontent.com/mmpx12/proxy-list/master/socks4.txt",
-                "https://raw.githubusercontent.com/mmpx12/proxy-list/master/socks5.txt"
-            ],
-            cache_ttl=int(os.environ.get("VIXSRC_FREE_PROXY_CACHE_TTL", "7200")),
-            max_fetch=_FREE_PROXY_MAX_FETCH,
-            max_good=_FREE_PROXY_MAX_GOOD,
-        )
-
     @staticmethod
     def _normalize_proxy_url(proxy_value: str) -> str:
         proxy_value = proxy_value.strip()
@@ -123,25 +93,6 @@ class VixSrcExtractor:
             cookie_jar=aiohttp.CookieJar(),
         )
 
-    async def _get_auto_proxy_pool(self, url: str, headers: dict) -> list[str]:
-        if os.environ.get("VIXSRC_ENABLE_FREE_PROXY_POOL", "true").lower() != "true":
-            return []
-
-        def probe_sync(proxy_url: str) -> bool:
-            try:
-                scraper = cloudscraper.create_scraper(delay=2)
-                resp = scraper.get(
-                    url,
-                    headers=headers or self._default_headers(),
-                    timeout=6,
-                    proxies={"http": proxy_url, "https": proxy_url},
-                )
-                return resp.status_code == 200 and len(resp.text) > 100
-            except Exception:
-                return False
-
-        return await self.proxy_manager.get_next_sequence(probe_sync)
-
     @staticmethod
     def _raise_if_embed_expired(url: str):
         parsed = urlparse(url)
@@ -174,38 +125,6 @@ class VixSrcExtractor:
                 self.last_used_proxy = proxy
             self.session = self._build_session_for_proxy(proxy)
         return self.session
-
-    async def _try_free_proxy_fallback(self, url: str, headers: dict):
-        """Tries to fetch the URL using the free proxy pool."""
-        for proxy_url in await self._get_auto_proxy_pool(url, headers):
-            logger.info("VixSrc: retrying with auto proxy %s", proxy_url)
-            temp_session = None
-            try:
-                temp_session = self._build_session_for_proxy(proxy_url)
-                async with temp_session.get(url, headers=headers) as response:
-                    response.raise_for_status()
-                    content = await response.text()
-
-                    class MockResponse:
-                        def __init__(self, text_content, status, headers_dict, response_url):
-                            self._text = text_content
-                            self.status = status
-                            self.headers = headers_dict
-                            self.url = response_url
-                            self.status_code = status
-                            self.text = text_content
-
-                    self.session = temp_session
-                    self.last_used_proxy = proxy_url
-                    logger.info("VixSrc: free proxy fallback succeeded with %s", proxy_url)
-                    return MockResponse(content, response.status, response.headers, response.url)
-            except Exception as proxy_exc:
-                logger.warning("VixSrc: auto proxy %s failed: %s", proxy_url, proxy_exc)
-                self.proxy_manager.report_failure(proxy_url)
-            finally:
-                if temp_session and temp_session is not self.session and not temp_session.closed:
-                    await temp_session.close()
-        return None
 
     async def _make_robust_request(
         self, url: str, headers: dict = None, retries: int = 3, initial_delay: int = 2
@@ -275,12 +194,6 @@ class VixSrcExtractor:
                     logger.info("Clearing sticky proxy context due to ProxyError")
                     SELECTED_PROXY_CONTEXT.set(None)
 
-                # Try free proxy fallback if primary fails with proxy/timeout error on first attempt
-                if (is_proxy_err or is_timeout) and attempt == 0:
-                    logger.info("VixSrc: primary connection failed with %s, trying free proxy fallback", err_type)
-                    fallback_resp = await self._try_free_proxy_fallback(url, final_headers)
-                    if fallback_resp:
-                        return fallback_resp
 
                 if attempt < retries - 1:
                     delay = initial_delay * (2**attempt)
@@ -293,18 +206,6 @@ class VixSrcExtractor:
                 if e.status == 404:
                     raise ExtractorError(f"VixSrc content not found (404): {url}")
                 
-                if e.status == 403 and attempt == 0:
-                    logger.warning("VixSrc direct request returned 403 for %s, trying free proxy fallback", url)
-                    if self.session and not self.session.closed:
-                        try:
-                            await self.session.close()
-                        except Exception:
-                            pass
-                        self.session = None
-
-                    fallback_resp = await self._try_free_proxy_fallback(url, final_headers)
-                    if fallback_resp:
-                        return fallback_resp
 
                 if attempt == retries - 1:
                     raise ExtractorError(f"Final HTTP error {e.status} for {url}: {str(e)}")

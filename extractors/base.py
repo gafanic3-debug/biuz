@@ -3,7 +3,7 @@ import asyncio
 import random
 import aiohttp
 from aiohttp import ClientSession, ClientTimeout, TCPConnector, ClientConnectionError
-from aiohttp_socks import ProxyConnector, ProxyError as AioProxyError
+from aiohttp_socks import ProxyError as AioProxyError
 from python_socks import ProxyError as PyProxyError
 
 from config import (
@@ -14,7 +14,6 @@ from config import (
     GLOBAL_PROXIES,
     mark_proxy_dead
 )
-from utils.proxy_manager import FreeProxyManager
 
 logger = logging.getLogger(__name__)
 
@@ -34,25 +33,6 @@ class BaseExtractor:
         self.proxies = proxies or GLOBAL_PROXIES
         self.extractor_name = extractor_name
         
-        # Initialize FreeProxyManager for this extractor
-        self.proxy_manager = FreeProxyManager.get_instance(
-            extractor_name,
-            [
-                "https://raw.githubusercontent.com/proxifly/free-proxy-list/refs/heads/main/proxies/all/data.txt",
-                "https://api.proxyscrape.com/v4/free-proxy-list/get?request=display_proxies&proxy_format=protocolipport&format=text",
-                "https://raw.githubusercontent.com/TheSpeedX/SOCKS-List/master/socks5.txt",
-                "https://raw.githubusercontent.com/TheSpeedX/SOCKS-List/master/socks4.txt",
-                "https://raw.githubusercontent.com/TheSpeedX/SOCKS-List/master/http.txt",
-                "https://raw.githubusercontent.com/hookzof/socks5_list/master/proxy.txt",
-                "https://raw.githubusercontent.com/ShiftyTR/Proxy-List/master/socks5.txt",
-                "https://raw.githubusercontent.com/jetkai/proxy-list/main/online-proxies/txt/proxies.txt",
-                "https://raw.githubusercontent.com/clarketm/proxy-list/master/proxy-list-raw.txt",
-                "https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/all.txt",
-                "https://raw.githubusercontent.com/mmpx12/proxy-list/master/https.txt",
-                "https://raw.githubusercontent.com/mmpx12/proxy-list/master/socks4.txt",
-                "https://raw.githubusercontent.com/mmpx12/proxy-list/master/socks5.txt"
-            ]
-        )
 
     async def _get_session(self, url: str = None):
         if self.session is None or self.session.closed:
@@ -128,8 +108,6 @@ class BaseExtractor:
                 
                 # Check for 403 or network errors to trigger fallback
                 status = getattr(e, 'status', None)
-                should_fallback = is_proxy_err or is_timeout or status in (403, 502, 503, 504)
-                
                 logger.warning(f"[{self.extractor_name}] Attempt {attempt+1} failed for {url}: {e}")
                 
                 # Reset session
@@ -142,20 +120,6 @@ class BaseExtractor:
                     if proxy_to_mark and "127.0.0.1" in proxy_to_mark:
                         mark_proxy_dead(proxy_to_mark)
                     SELECTED_PROXY_CONTEXT.set(None)
-                
-                if should_fallback and attempt == 0:
-                    logger.info(f"[{self.extractor_name}] Trying free proxy fallback for {url}")
-                    for proxy_url in await self.proxy_manager.get_proxies():
-                        try:
-                            connector = ProxyConnector.from_url(proxy_url)
-                            async with ClientSession(connector=connector, timeout=ClientTimeout(total=20)) as fallback_session:
-                                async with fallback_session.request(method, url, headers=final_headers, allow_redirects=True, **kwargs) as resp:
-                                    if resp.status == 200:
-                                        logger.info(f"[{self.extractor_name}] Fallback successful via {proxy_url}")
-                                        content = await resp.text()
-                                        return MockResponse(content, resp.status, resp.headers, str(resp.url), resp.cookies)
-                        except Exception:
-                            continue
                 
                 if attempt < retries - 1:
                     await asyncio.sleep(1)

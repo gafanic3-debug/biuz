@@ -9,9 +9,7 @@ from typing import Any, Dict, Optional
 
 import aiohttp
 from aiohttp import ClientSession, ClientTimeout, TCPConnector
-from aiohttp_socks import ProxyConnector
 from config import FLARESOLVERR_URL, FLARESOLVERR_TIMEOUT, get_proxy_for_url, TRANSPORT_ROUTES, GLOBAL_PROXIES, get_connector_for_proxy, get_solver_proxy_url
-from utils.smart_request import smart_request
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +46,7 @@ class CinemaCityExtractor:
             self.session = ClientSession(timeout=timeout, connector=connector, headers={'User-Agent': self.user_agent})
         return self.session
 
-    async def _request_flaresolverr(self, cmd: str, url: str = None, post_data: str = None) -> dict:
+    async def _request_flaresolverr(self, cmd: str, url: str = None, post_data: str = None, headers: dict | None = None) -> dict:
         """Performs a request via FlareSolverr."""
         if not self.flaresolverr_url:
             raise ExtractorError("FlareSolverr URL not configured")
@@ -72,6 +70,21 @@ class CinemaCityExtractor:
                 logger.debug(f"CinemaCity: Passing explicit proxy to solver: {solver_proxy}")
 
         if post_data: payload["postData"] = post_data
+        cookie_header = (headers or {}).get("Cookie") or (headers or {}).get("cookie")
+        if cookie_header:
+            parsed_target = urllib.parse.urlparse(url or self.base_url)
+            payload["cookies"] = [
+                {
+                    "name": key.strip(),
+                    "value": value.strip(),
+                    "domain": parsed_target.hostname,
+                    "path": "/",
+                    "secure": parsed_target.scheme == "https",
+                }
+                for item in cookie_header.split(";")
+                if "=" in item
+                for key, value in [item.split("=", 1)]
+            ]
 
         async with aiohttp.ClientSession() as session:
             try:
@@ -92,6 +105,24 @@ class CinemaCityExtractor:
             raise ExtractorError(f"FlareSolverr ({cmd}): {data.get('message', 'unknown error')}")
         
         return data
+
+    async def _fetch_page(self, url: str, headers: dict) -> tuple[str, dict]:
+        try:
+            session = await self._get_session()
+            async with session.get(url, headers=headers, timeout=25, ssl=False) as resp:
+                if resp.status == 200:
+                    html = await resp.text()
+                    if html:
+                        cookies = {k: v.value for k, v in resp.cookies.items()}
+                        return html, cookies
+        except Exception as e:
+            logger.debug(f"CinemaCity direct fetch failed: {e}")
+
+        result = await self._request_flaresolverr("request.get", url, headers=headers)
+        solution = result.get("solution", {})
+        html = solution.get("response", "")
+        cookies = {c["name"]: c["value"] for c in solution.get("cookies", [])}
+        return html, cookies
 
     def base64_decode(self, data: str) -> str:
         try:
@@ -177,7 +208,6 @@ class CinemaCityExtractor:
         return None
 
     async def extract(self, url: str, **kwargs) -> dict:
-        session = await self._get_session()
         cookies = self.get_session_cookies()
         
         # Get params from kwargs or infer from URL/query
@@ -207,20 +237,10 @@ class CinemaCityExtractor:
             "X-Requested-With": "XMLHttpRequest"
         }
 
-        # Use SmartRequest (Direct or FlareSolverr fallback)
-        result = await smart_request(
-            "request.get",
-            url,
-            headers=headers,
-            proxies=self.proxies,
-            bypass_warp=True,
-        )
-        html = result.get("html", "")
-        dynamic_cookies = result.get("cookies", {})
+        html, dynamic_cookies = await self._fetch_page(url, headers)
 
-        # Find player for referer
         if not html:
-            raise ExtractorError("Failed to retrieve page content (SmartRequest failed)")
+            raise ExtractorError("Failed to retrieve page content")
 
         # Find player for referer
         iframe_match = re.search(r'<iframe[^>]+src=["\']([^"\']*player\.php[^"\']*)["\']', html, re.I)

@@ -9,7 +9,6 @@ python-socks
 pycryptodome
 pydash2hls
 playwright
-ddddocr
 Pillow
 curl_cffi
 cloudscraper
