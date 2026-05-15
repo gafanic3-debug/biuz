@@ -1277,10 +1277,7 @@ class HLSProxy:
                     )
                 return self.extractors[key]
             elif (
-                # Rileva per dominio noto (aggiorna qui se cambia)
-                any(d in url for d in ["dlhd.dad", "dlstreams.com"])
-                # Rileva per pattern URL stabile (/watch.php?id=NNN)
-                or (re.search(r'/watch\.php\?.*id=\d+', url) is not None)
+                re.search(r'(/watch\.php\?.*id=\d+|/stream/stream-[\w-]+\.php)', urllib.parse.unquote(url)) is not None
             ):
                 key = "dlstreams_direct" if bypass_warp else "dlstreams"
                 proxy = get_proxy_for_url(
@@ -2619,13 +2616,9 @@ class HLSProxy:
             # 2. key_url matches /key/premium pattern (CDN rotates domains)
             # 3. original_channel_url contains the mono.css manifest pattern
             is_dlstreams_key = False
-            if original_channel_url and any(
-                marker in original_channel_url for marker in ["dlhd.dad", "dlstreams.top", "dlstreams.com"]
-            ):
+            if re.search(r"/key/premium\d+/", key_url):
                 is_dlstreams_key = True
-            elif re.search(r"/key/premium\d+/", key_url):
-                is_dlstreams_key = True
-            elif original_channel_url and re.search(r"/proxy/.+/premium\d+/mono\.css", original_channel_url):
+            elif original_channel_url and re.search(r"/proxy/.+/premium\d+/mono\.\w+", original_channel_url):
                 is_dlstreams_key = True
 
             if is_dlstreams_key:
@@ -2849,17 +2842,9 @@ class HLSProxy:
         """✅ NUOVO: Proxy dedicato per segmenti .ts con Content-Disposition"""
         try:
             # Ping DLStreams extractor to keep browser alive during playback
-            # Use robust markers: Daddy's domains, 'premium' pattern, 'mono.css', or Referer/Origin headers
-            is_dlstreams = any(m in segment_url for m in ["dlhd.dad", "dlstreams", "premium", "mono.css"])
-            if not is_dlstreams:
-                ref = request.query.get("h_Referer", "") or request.headers.get("Referer", "")
-                origin = request.query.get("h_Origin", "") or request.headers.get("Origin", "")
-                is_dlstreams = any(m in (ref + origin).lower() for m in ["dlhd.dad", "dlstreams"])
-            
-            if is_dlstreams:
-                ext = self.extractors.get("dlstreams")
-                if ext and hasattr(ext, "_update_shared_activity"):
-                    ext._update_shared_activity()
+            ext = self.extractors.get("dlstreams") or self.extractors.get("dlstreams_direct")
+            if ext and hasattr(ext, "_update_shared_activity"):
+                ext._update_shared_activity()
 
             headers = dict(stream_headers)
             is_cccdn_stream = "cccdn.net" in segment_url
@@ -2961,17 +2946,9 @@ class HLSProxy:
 
         try:
             # Ping DLStreams extractor to keep browser alive during playback
-            # Use robust markers: Daddy's domains, 'premium' pattern, 'mono.css', or Referer/Origin headers
-            is_dlstreams = any(m in stream_url for m in ["dlhd.dad", "dlstreams", "premium", "mono.css"])
-            if not is_dlstreams:
-                ref = request.query.get("h_Referer", "") or request.headers.get("Referer", "")
-                origin = request.query.get("h_Origin", "") or request.headers.get("Origin", "")
-                is_dlstreams = any(m in (ref + origin).lower() for m in ["dlhd.dad", "dlstreams"])
-
-            if is_dlstreams:
-                ext = self.extractors.get("dlstreams")
-                if ext and hasattr(ext, "_update_shared_activity"):
-                    ext._update_shared_activity()
+            ext = self.extractors.get("dlstreams") or self.extractors.get("dlstreams_direct")
+            if ext and hasattr(ext, "_update_shared_activity"):
+                ext._update_shared_activity()
 
             headers = dict(stream_headers)
 

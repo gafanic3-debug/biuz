@@ -134,7 +134,7 @@ else
 fi
 
 echo "Starting FlareSolverr (v3 Python)..."
-cd /app/flaresolverr && eval $PROXY_VARS PORT=8191 python3 src/flaresolverr.py > /dev/null 2>&1 &
+cd /app/flaresolverr && eval $PROXY_VARS PORT=8191 python3 src/flaresolverr.py > /dev/null &
 
 echo "Starting EasyProxy..."
 cd /app

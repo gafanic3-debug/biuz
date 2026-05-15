@@ -161,18 +161,30 @@ class EmbedSportsExtractor:
             if not self._playwright:
                 self._playwright = await async_playwright().start()
 
-            chrome_path = os.getenv("CHROME_BIN") or os.getenv("CHROME_EXE_PATH")
-            executable_path = chrome_path if chrome_path and os.path.exists(chrome_path) else None
-            self._browser = await self._playwright.chromium.launch(
-                headless=sys.platform.startswith("linux"),
-                executable_path=executable_path,
-                args=[
-                    "--disable-blink-features=AutomationControlled",
-                    "--no-sandbox",
-                    "--disable-dev-shm-usage",
-                    "--autoplay-policy=no-user-gesture-required",
-                ],
-            )
+            # Try to connect to shared browser on port 9222
+            try:
+                self._browser = await self._playwright.chromium.connect_over_cdp(
+                    "http://localhost:9222",
+                    timeout=2000
+                )
+                logger.info("🔗 [Shared Browser] Connected to existing instance on port 9222")
+            except Exception:
+                chrome_path = os.getenv("CHROME_BIN") or os.getenv("CHROME_EXE_PATH")
+                executable_path = chrome_path if chrome_path and os.path.exists(chrome_path) else None
+                self._browser = await self._playwright.chromium.launch(
+                    headless=sys.platform.startswith("linux"),
+                    executable_path=executable_path,
+                    args=[
+                        "--remote-debugging-port=9222",
+                        "--disable-blink-features=AutomationControlled",
+                        "--no-sandbox",
+                        "--disable-dev-shm-usage",
+                        "--autoplay-policy=no-user-gesture-required",
+                    ],
+                )
+                logger.info("🚀 [Shared Browser] Launching new instance on port 9222")
+
+            # Always create a fresh context for embedsports-specific headers
             self._context = await self._browser.new_context(
                 user_agent=self.base_headers["User-Agent"],
                 viewport={"width": 1366, "height": 768},
@@ -182,6 +194,12 @@ class EmbedSportsExtractor:
                     "Accept-Language": self._get_header("Accept-Language", "en-US,en;q=0.9"),
                 },
             )
+
+            # Keep context alive with a dummy page
+            if not self._context.pages:
+                dummy_page = await self._context.new_page()
+                await dummy_page.goto("about:blank")
+
             return self._playwright, self._browser, self._context
 
     async def _capture_manifest(self, embed_url: str, force_refresh: bool = False) -> tuple[str, str]:

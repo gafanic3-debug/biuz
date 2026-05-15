@@ -19,23 +19,20 @@ from config import (
 
 logger = logging.getLogger(__name__)
 
-# Fallback origin used when the input URL does not include a DLStreams host.
-DLSTREAMS_ENTRY_ORIGIN = "https://dlstreams.com"
-DLSTREAMS_ENTRY_HOSTS = {"dlhd.dad", "dlstreams.com"}
-
 class ExtractorError(Exception):
     """Custom exception for extraction errors."""
     pass
 
 class DLStreamsExtractor:
-    """Extractor for dlhd.dad / dlstreams streams."""
+    """Extractor for daddy live / dlstreams streams."""
 
     def __init__(self, request_headers: dict = None, proxies: list = None, bypass_warp: bool = False):
         self.request_headers = request_headers or {}
-        self.entry_origin = DLSTREAMS_ENTRY_ORIGIN
+        # entry_origin is set dynamically from the first URL via _sync_entry_origin_from_url
+        self.entry_origin = ""
         # Runtime-discovered stream origin (learned from browser network responses).
         # We intentionally avoid hardcoding CDN domains because they rotate frequently.
-        self.stream_origin = self.entry_origin
+        self.stream_origin = ""
         self.base_headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
         }
@@ -173,13 +170,13 @@ class DLStreamsExtractor:
 
     def _sync_entry_origin_from_url(self, url: str) -> None:
         parsed = urlparse(url)
-        if parsed.scheme in {"http", "https"} and parsed.netloc.lower() in DLSTREAMS_ENTRY_HOSTS:
+        if parsed.scheme in {"http", "https"} and parsed.netloc:
             origin = f"{parsed.scheme}://{parsed.netloc}"
             if origin != self.entry_origin:
                 logger.debug("DLStreams entry origin changed from %s to %s", self.entry_origin, origin)
                 self.entry_origin = origin
-                if self.stream_origin in {"https://dlhd.dad", "https://dlstreams.com"}:
-                    self.stream_origin = origin
+            if not self.stream_origin:
+                self.stream_origin = origin
 
     async def _launch_browser(self):
         async with self._browser_launch_lock:
@@ -443,14 +440,13 @@ class DLStreamsExtractor:
                             content_type = (response.headers.get("content-type") or "").lower()
                             # Catch current and legacy manifest shapes:
                             # - legacy: /proxy/{server}/{premiumNNN}/mono.css
-                            # - current: /premiumNNN/tracks-.../mono.css
+                            # - current: /premiumNNN/tracks-.../mono.m3u8
                             # - variants: direct .m3u8 URLs, sometimes without premiumNNN in the URL
                             is_manifest_candidate = (
                                 (
                                     channel_key in response_url
                                     and (
                                         "/proxy/" in response_url
-                                        or "mono.css" in response_path
                                         or response_path.endswith(".m3u8")
                                     )
                                 )
@@ -698,8 +694,7 @@ class DLStreamsExtractor:
                         lookup_base = self._origin_of(browser_stream_url).rstrip("/")
                     else:
                         lookup_base = self.stream_origin.rstrip("/")
-                        server_key = await self._lookup_server_key(lookup_base, channel_key, iframe_origin)
-                        m3u8_url = f"{lookup_base}/proxy/{server_key}/{channel_key}/mono.css"
+                        m3u8_url = lookup_base
                     break
             
             if not captured_manifest and not captured_stream_url:
@@ -756,10 +751,8 @@ class DLStreamsExtractor:
                 }
 
             # 2. SERVER LOOKUP: refresh once more after possible browser re-capture
-            if not m3u8_url:
-                server_key = await self._lookup_server_key(lookup_base, channel_key, iframe_origin)
-                logger.debug(f"Found server_key: {server_key} via {iframe_origin}")
-                m3u8_url = f"{lookup_base}/proxy/{server_key}/{channel_key}/mono.css"
+            if not m3u8_url and lookup_base:
+                m3u8_url = lookup_base
 
             # 3. Setup headers for playback/proxying
             playback_headers = {
