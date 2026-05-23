@@ -14,7 +14,7 @@ class PlaylistBuilder:
     def __init__(self):
         self.user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
     
-    def rewrite_m3u_links_streaming(self, m3u_lines_iterator: Iterator[str], base_url: str, api_password: str = None) -> Iterator[str]:
+    def rewrite_m3u_links_streaming(self, m3u_lines_iterator: Iterator[str], base_url: str, api_password: str = None, native_mpd: bool = False) -> Iterator[str]:
         current_ext_headers: Dict[str, str] = {}
         current_clearkey = None  # Store clearkey from KODIPROP
         
@@ -117,7 +117,8 @@ class PlaylistBuilder:
                     processed_url_content = f"{base_url}/proxy/manifest.m3u8?url={encoded_url}"
                 elif '.mpd' in logical_line:
                     encoded_url = urllib.parse.quote(logical_line, safe='')
-                    processed_url_content = f"{base_url}/proxy/manifest.m3u8?url={encoded_url}"
+                    endpoint = "/proxy/mpd/manifest.mpd" if native_mpd else "/proxy/manifest.m3u8"
+                    processed_url_content = f"{base_url}{endpoint}?url={encoded_url}"
                 elif '.php' in logical_line:
                     encoded_url = urllib.parse.quote(logical_line, safe='')
                     processed_url_content = f"{base_url}/proxy/manifest.m3u8?url={encoded_url}"
@@ -251,10 +252,11 @@ class PlaylistBuilder:
             if options.get('sort'):
                 items = self.parse_playlist_items(playlist_lines)
                 for item in items:
-                    sorted_items_buffer.append({
-                        'lines': item,
-                        'noproxy': options.get('noproxy', False)
-                    })
+                        sorted_items_buffer.append({
+                            'lines': item,
+                            'noproxy': options.get('noproxy', False),
+                            'native_mpd': options.get('native_mpd', False)
+                        })
             else:
                 # Se abbiamo un buffer pendente di elementi da ordinare, processiamolo prima
                 if sorted_items_buffer:
@@ -267,7 +269,7 @@ class PlaylistBuilder:
                         if item_data['noproxy']:
                             iterator = iter(item_lines)
                         else:
-                            iterator = self.rewrite_m3u_links_streaming(iter(item_lines), base_url, api_password=api_password)
+                            iterator = self.rewrite_m3u_links_streaming(iter(item_lines), base_url, api_password=api_password, native_mpd=item_data.get('native_mpd', False))
                         
                         for line in iterator:
                             if not line.endswith('\n'): line += '\n'
@@ -279,7 +281,7 @@ class PlaylistBuilder:
                 if options.get('noproxy'):
                     iterator = iter(playlist_lines)
                 else:
-                    iterator = self.rewrite_m3u_links_streaming(iter(playlist_lines), base_url, api_password=api_password)
+                    iterator = self.rewrite_m3u_links_streaming(iter(playlist_lines), base_url, api_password=api_password, native_mpd=options.get('native_mpd', False))
                 
                 for line in iterator:
                     # Salta headers globali se già gestiti
@@ -297,7 +299,7 @@ class PlaylistBuilder:
                 if item_data['noproxy']:
                     iterator = iter(item_lines)
                 else:
-                    iterator = self.rewrite_m3u_links_streaming(iter(item_lines), base_url, api_password=api_password)
+                    iterator = self.rewrite_m3u_links_streaming(iter(item_lines), base_url, api_password=api_password, native_mpd=item_data.get('native_mpd', False))
                 
                 for line in iterator:
                     if not line.endswith('\n'): line += '\n'

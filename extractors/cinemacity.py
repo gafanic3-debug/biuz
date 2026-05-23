@@ -94,9 +94,13 @@ class CinemaCityExtractor:
                     headers=fs_headers,
                     timeout=aiohttp.ClientTimeout(total=self.flaresolverr_timeout + 95),
                 ) as resp:
-                    if resp.status != 200:
-                        raise ExtractorError(f"FlareSolverr HTTP {resp.status}")
                     data = await resp.json()
+                    if resp.status != 200:
+                        msg = data.get("message", f"HTTP {resp.status}")
+                        logger.error(f"CinemaCity: FlareSolverr returned {resp.status} ({cmd}): {msg}")
+                        raise ExtractorError(f"FlareSolverr HTTP {resp.status}: {msg}")
+            except ExtractorError:
+                raise
             except Exception as e:
                 logger.error(f"CinemaCity: FlareSolverr request failed ({cmd}): {e}")
                 raise ExtractorError(f"FlareSolverr bypass failed: {e}")

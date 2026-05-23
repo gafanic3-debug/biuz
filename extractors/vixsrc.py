@@ -61,6 +61,78 @@ class VixSrcExtractor:
         headers.update(extra_headers)
         return headers
 
+    async def _make_curl_request(self, url: str, headers: dict = None):
+        """Fetch Cloudflare-protected embeds with curl_cffi and proxy rotation."""
+        from curl_cffi.requests import AsyncSession as CurlAsyncSession
+
+        class MockResponse:
+            def __init__(self, text_content, status, response_url):
+                self._text = text_content
+                self.status = status
+                self.status_code = status
+                self.text = text_content
+                self.url = response_url
+                self.headers = {}
+
+            async def text_async(self):
+                return self._text
+
+            def raise_for_status(self):
+                if self.status >= 400:
+                    raise ExtractorError(f"curl_cffi HTTP error {self.status} for {self.url}")
+
+        proxies_to_try = []
+        route_proxy = get_proxy_for_url(url, TRANSPORT_ROUTES, self.proxies)
+        if route_proxy:
+            proxies_to_try.append(route_proxy)
+        for proxy in self.proxies or []:
+            if proxy not in proxies_to_try:
+                proxies_to_try.append(proxy)
+        if not proxies_to_try:
+            proxies_to_try.append(None)
+
+        last_status = None
+        last_error = None
+        final_headers = self._fresh_headers(**(headers or {}))
+
+        for proxy_value in proxies_to_try:
+            request_kwargs = {}
+            proxy = self._normalize_proxy_url(proxy_value) if proxy_value else None
+            if proxy:
+                request_kwargs["proxies"] = {"http": proxy, "https": proxy}
+                logger.info("curl_cffi using proxy %s for %s", proxy, url)
+            else:
+                logger.info("curl_cffi using direct connection for %s", url)
+
+            try:
+                async with CurlAsyncSession(impersonate="chrome131") as session:
+                    resp = await session.get(
+                        url,
+                        headers=final_headers,
+                        timeout=30,
+                        allow_redirects=True,
+                        **request_kwargs,
+                    )
+                    content = resp.text
+
+                last_status = resp.status_code
+                logger.info(
+                    "curl_cffi status=%s len=%s for %s",
+                    resp.status_code,
+                    len(content) if content else 0,
+                    url,
+                )
+                if 200 <= resp.status_code < 300:
+                    self.last_used_proxy = proxy
+                    return MockResponse(content, resp.status_code, url)
+            except Exception as exc:
+                last_error = exc
+                logger.warning("curl_cffi request failed for %s via %s: %s", url, proxy or "direct", exc)
+
+        if last_error:
+            raise ExtractorError(f"curl_cffi request failed for {url}: {last_error}")
+        raise ExtractorError(f"curl_cffi HTTP error {last_status} for {url}")
+
     @staticmethod
     def _normalize_base_site(url: str) -> str:
         parsed = urlparse(url)
@@ -127,7 +199,7 @@ class VixSrcExtractor:
         return self.session
 
     async def _make_robust_request(
-        self, url: str, headers: dict = None, retries: int = 3, initial_delay: int = 2
+        self, url: str, headers: dict = None, retries: int = 1, initial_delay: int = 2
     ):
         """Effettua richieste HTTP robuste con retry automatico."""
         final_headers = headers or {}
@@ -205,7 +277,38 @@ class VixSrcExtractor:
             except aiohttp.ClientResponseError as e:
                 if e.status == 404:
                     raise ExtractorError(f"VixSrc content not found (404): {url}")
-                
+
+                if e.status == 403 and attempt == retries - 1:
+                    try:
+                        from curl_cffi.requests import AsyncSession as CurlAsyncSession
+                        logger.info("aiohttp 403, trying curl_cffi for %s", url)
+                        headers_403 = final_headers or self._default_headers()
+                        async with CurlAsyncSession(impersonate="chrome131") as session:
+                            resp = await session.get(
+                                url,
+                                headers=headers_403,
+                                timeout=30,
+                                allow_redirects=True,
+                            )
+                            status_403 = resp.status_code
+                            text_403 = resp.text
+                        logger.info("curl_cffi fallback status=%s len=%s for %s", status_403, len(text_403) if text_403 else 0, url)
+                        if status_403 == 200 and text_403:
+                            class MockResponse:
+                                def __init__(self, text_content, status, response_url):
+                                    self._text = text_content
+                                    self.status = status
+                                    self.status_code = status
+                                    self.text = text_content
+                                    self.url = response_url
+                                    self.headers = {}
+                                async def text_async(self):
+                                    return self._text
+                                def raise_for_status(self):
+                                    pass
+                            return MockResponse(text_403, status_403, url)
+                    except Exception as cffi_exc:
+                        logger.warning("curl_cffi fallback failed for %s: %s", url, cffi_exc)
 
                 if attempt == retries - 1:
                     raise ExtractorError(f"Final HTTP error {e.status} for {url}: {str(e)}")
@@ -406,12 +509,18 @@ class VixSrcExtractor:
 
             if "/embed/" in parsed_url.path:
                 self._raise_if_embed_expired(url)
-                response = await self._make_robust_request(
-                    url,
-                    headers=self._fresh_headers(
-                        referer=self._normalize_base_site(url) + "/"
-                    ),
-                )
+                if parsed_url.netloc.lower().endswith("vixcloud.co"):
+                    response = await self._make_curl_request(
+                        url,
+                        headers={"referer": self._normalize_base_site(url) + "/"},
+                    )
+                else:
+                    response = await self._make_robust_request(
+                        url,
+                        headers=self._fresh_headers(
+                            referer=self._normalize_base_site(url) + "/"
+                        ),
+                    )
             elif "iframe" in url:
                 site_url = url.split("/iframe")[0]
                 version = await self.version(site_url)

@@ -121,6 +121,7 @@ EmbedSportsExtractor = None
 StreamHGExtractor = None
 CinemaCityExtractor = None
 DeltabitExtractor = None
+VidXgoExtractor = None
 
 
 logger = logging.getLogger(__name__)
@@ -279,6 +280,12 @@ except ImportError:
     logger.warning("⚠️ DroploadExtractor module not found.")
 
 try:
+    from extractors.vidxgo import VidXgoExtractor
+    logger.info("✅ VidXgoExtractor module loaded.")
+except ImportError:
+    logger.warning("⚠️ VidXgoExtractor module not found.")
+
+try:
     from extractors.vidmoly import VidmolyExtractor
     logger.info("✅ VidmolyExtractor module loaded.")
 except ImportError:
@@ -423,6 +430,62 @@ class HLSProxy:
         self.hls_url_map[url_id] = (url, now, current_ttl)
         return url_id
 
+    def _refresh_segment_token(self, segment_url: str) -> str | None:
+        """
+        For signed-token CDN URLs (VidXgo et al.), rewrite the `?t=&e=&b=`
+        query of the requested segment so it uses the freshest token currently
+        known in `captured_hls_manifest_map`. Matches by segment path: the
+        path component (everything before `?`) is stable across token
+        rotations, while the query holds the rotating token.
+
+        Returns the rewritten URL, or None if no match (caller falls back to
+        the original URL).
+        """
+        try:
+            parsed = urllib.parse.urlparse(segment_url)
+        except Exception:
+            return None
+        if not parsed.query:
+            return None
+        seg_path = parsed.path
+        if not seg_path:
+            return None
+        # Only meaningful for hosts that put a rotating token in the query.
+        # We key off `e=` (ms-epoch expiry) which VidXgo always emits.
+        q = urllib.parse.parse_qs(parsed.query)
+        if "e" not in q:
+            return None
+        # Scan all captured variant manifests. The most recently refreshed
+        # one wins (highest stored_at).
+        candidates = []
+        for entry in self.captured_hls_manifest_map.values():
+            captured_url, captured_manifest, _, stored_at, _, _ = entry
+            if not captured_manifest:
+                continue
+            cap_parsed = urllib.parse.urlparse(captured_url)
+            if cap_parsed.netloc != parsed.netloc:
+                continue
+            # The captured variant playlist lists segments as RELATIVE paths,
+            # so resolve each non-comment line against the variant URL and
+            # match by path suffix.
+            for line in captured_manifest.splitlines():
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                abs_seg = urllib.parse.urljoin(captured_url, line)
+                cand = urllib.parse.urlparse(abs_seg)
+                if cand.path == seg_path:
+                    candidates.append((stored_at, abs_seg))
+                    break
+        if not candidates:
+            return None
+        candidates.sort(key=lambda x: x[0], reverse=True)
+        fresh_url = candidates[0][1]
+        if fresh_url == segment_url:
+            return None
+        logger.debug("Refreshed segment token: %s -> %s", segment_url[-60:], fresh_url[-60:])
+        return fresh_url
+
     async def store_captured_hls_manifest(
         self,
         url: str,
@@ -439,13 +502,34 @@ class HLSProxy:
         for key in expired_keys:
             self.captured_hls_manifest_map.pop(key, None)
 
-        url_id = f"cm_{hashlib.md5(url.encode()).hexdigest()[:12]}"
+        # Derive a stable id from (source_url + filename) when possible, so that
+        # extractors that rotate signed-token URLs (vidxgo, …) keep emitting the
+        # same cm_<id> across refreshes — otherwise the player would see a new
+        # rendition every TTL and restart playback from zero.
+        if source_url:
+            suffix = urllib.parse.urlparse(url).path.rsplit("/", 1)[-1] or url
+            stable_key = f"{source_url}|{suffix}"
+        else:
+            stable_key = url
+        url_id = f"cm_{hashlib.md5(stable_key.encode()).hexdigest()[:12]}"
         self.captured_hls_manifest_map[url_id] = (url, manifest, headers, now, ttl, source_url)
         self.hls_url_map[url_id] = (url, now, ttl)
         if source_url and (
             url_id not in self.captured_hls_refresh_tasks
             or self.captured_hls_refresh_tasks[url_id].done()
         ):
+            def _parse_e_expiry_ms(u: str) -> float | None:
+                """Parse the `e=` query param (ms epoch) from a signed CDN URL."""
+                try:
+                    qs = urllib.parse.urlparse(u).query
+                    params = urllib.parse.parse_qs(qs)
+                    raw = params.get("e", [None])[0]
+                    if not raw:
+                        return None
+                    return float(raw) / 1000.0  # ms -> s
+                except Exception:
+                    return None
+
             async def refresh_loop():
                 while url_id in self.captured_hls_manifest_map:
                     await asyncio.sleep(2)
@@ -453,7 +537,20 @@ class HLSProxy:
                     if not entry:
                         break
                     captured_url, _, captured_headers, stored_at, entry_ttl, entry_source_url = entry
-                    if time.time() - stored_at > entry_ttl:
+                    # Prefer the actual signed-URL expiry (`e=`) when present,
+                    # falling back to the static entry_ttl window.
+                    expiry_ts = _parse_e_expiry_ms(captured_url)
+                    now_ts = time.time()
+                    if expiry_ts is not None:
+                        seconds_left = expiry_ts - now_ts
+                    else:
+                        seconds_left = entry_ttl - (now_ts - stored_at)
+                    # Refresh proactively when <60s remain on the token.
+                    if seconds_left > 60:
+                        continue
+                    # Hard GC only if the entry is long-dead AND no signed URL
+                    # to consult (avoid evicting entries that still have valid e=).
+                    if expiry_ts is None and now_ts - stored_at > entry_ttl:
                         self.captured_hls_manifest_map.pop(url_id, None)
                         break
                     try:
@@ -479,13 +576,22 @@ class HLSProxy:
                         for refreshed_url, refreshed_manifest in reversed(refreshed_manifests):
                             if refreshed_url and urllib.parse.urlparse(refreshed_url).path.endswith(suffix):
                                 refreshed_headers = refreshed.get("request_headers", captured_headers)
+                                # CRITICAL: bump stored_at so the entry is not
+                                # GC'd by the entry_ttl check above, and so the
+                                # next refresh cycle uses the fresh token's
+                                # `e=` to compute seconds_left.
                                 self.captured_hls_manifest_map[url_id] = (
                                     refreshed_url,
                                     refreshed_manifest,
                                     refreshed_headers,
-                                    stored_at,
+                                    time.time(),
                                     entry_ttl,
                                     entry_source_url,
+                                )
+                                logger.info(
+                                    "captured HLS refreshed %s (e_left=%.0fs)",
+                                    entry_source_url,
+                                    (_parse_e_expiry_ms(refreshed_url) or 0) - time.time(),
                                 )
                                 break
                     except Exception as exc:
@@ -1354,6 +1460,21 @@ class HLSProxy:
                         request_headers, proxies=proxy_list
                     )
                 return self.extractors[key]
+            elif "vidxgo" in url.lower():
+                key = "vidxgo"
+                proxy = get_proxy_for_url(
+                    "vidxgo", TRANSPORT_ROUTES, GLOBAL_PROXIES, bypass_warp=bypass_warp
+                )
+                proxy_list = [proxy] if proxy else []
+                if key not in self.extractors:
+                    if VidXgoExtractor is None:
+                        raise RuntimeError("VidXgoExtractor module not available")
+                    self.extractors[key] = VidXgoExtractor(
+                        request_headers, proxies=proxy_list
+                    )
+                # Always refresh request_headers so per-call h_* overrides are honored.
+                self.extractors[key].request_headers = request_headers
+                return self.extractors[key]
             elif "dropload" in url:
                 key = "dropload"
                 proxy = get_proxy_for_url(
@@ -1556,6 +1677,11 @@ class HLSProxy:
             captured_manifest = None
             is_rewritten_hls_segment = request.path.startswith("/proxy/hls/segment.")
             if is_rewritten_hls_segment:
+                # For signed-token CDNs (e.g. VidXgo) the original `?d=` URL
+                # carries a short-lived token. If the latest captured manifest
+                # for the same stream has fresher tokens, use those instead so
+                # we never hit 403 on the upstream fetch.
+                target_url = self._refresh_segment_token(target_url) or target_url
                 extractor = None
                 stream_url = target_url
                 stream_headers = {}
@@ -1594,6 +1720,7 @@ class HLSProxy:
                 stream_url = result["destination_url"]
                 stream_headers = result.get("request_headers", {})
                 captured_manifest = result.get("captured_manifest")
+                captured_manifests = result.get("captured_manifests") or {}
                 force_disable_ssl = result.get("disable_ssl", False)
                 
                 # Cattura e sanifica il proxy per evitare double-encoding (%253A -> %3A)
@@ -1701,9 +1828,23 @@ class HLSProxy:
                 no_bypass = request.query.get("no_bypass") == "1"
                 use_short_hls_urls = (
                     "cinemacity.cc" in (original_channel_url or "").lower()
+                    or "vidxgo" in (original_channel_url or "").lower()
                     or request.query.get("host", "").lower() in {"city", "cinemacity"}
                 )
                 disable_ssl = request.query.get("disable_ssl") == "1" or force_disable_ssl
+
+                async def shorten_captured_manifest_url(manifest_url: str) -> str:
+                    captured_text = captured_manifests.get(manifest_url)
+                    if captured_text:
+                        return await self.store_captured_hls_manifest(
+                            manifest_url,
+                            captured_text,
+                            stream_headers,
+                            ttl=300,
+                            source_url=original_channel_url,
+                        )
+                    return await self.shorten_hls_url(manifest_url)
+
                 rewritten_manifest = await ManifestRewriter.rewrite_manifest_urls(
                     manifest_content=captured_manifest,
                     base_url=stream_url,
@@ -1713,7 +1854,7 @@ class HLSProxy:
                     api_password=api_password,
                     get_extractor_func=lambda url, headers, host=None: self.get_extractor(url, headers, host, bypass_warp=bypass_warp),
                     no_bypass=no_bypass,
-                    shorten_url_func=self.shorten_hls_url if use_short_hls_urls else None,
+                    shorten_url_func=shorten_captured_manifest_url if use_short_hls_urls else None,
                     bypass_warp=bypass_warp,
                     disable_ssl=disable_ssl,
                     selected_proxy=selected_proxy,

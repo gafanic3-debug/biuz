@@ -139,6 +139,14 @@
                         </label>
                         <p class="mt-1 ml-1 text-[10px] text-slate-500 dark:text-slate-400 italic">Bypasses SSL certificate verification for this specific request.</p>
                     </div>
+                    <div class="flex-1 min-w-[200px]">
+                        <label
+                            class="flex items-center gap-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-700/30 px-4 py-3 text-sm text-slate-700 dark:text-slate-200 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700/50 transition">
+                            <input id="proxyNativeMpd" type="checkbox" class="h-4 w-4 accent-sky-600">
+                            <span>Native MPD endpoint (<code>/proxy/mpd/manifest.mpd</code>)</span>
+                        </label>
+                        <p class="mt-1 ml-1 text-[10px] text-slate-500 dark:text-slate-400 italic">Overrides the endpoint to use native DASH MPD instead of HLS conversion.</p>
+                    </div>
                 </div>
                 <div class="flex gap-3">
                     <button id="generateProxy"
@@ -187,6 +195,7 @@
                             <option value="orion">Orion</option>
                             <option value="freeshot">Freeshot</option>
                             <option value="vavoo">Vavoo</option>
+                            <option value="vidxgo">VidXGo</option>
                             <option value="vixsrc">VixSrc</option>
                             <option value="sportsonline">SportsOnline</option>
                             <option value="dlstreams">DLStreams / DaddyLiveHD</option>
@@ -342,13 +351,17 @@
         }
 
         async function generateProxyUrl() {
-            const endpoint = document.getElementById('proxyEndpoint').value;
+            let endpoint = document.getElementById('proxyEndpoint').value;
             const destinationUrl = document.getElementById('destinationUrl').value.trim();
             const apiPassword = document.getElementById('apiPassword').value.trim();
             const redirectStream = document.getElementById('proxyRedirectStream').checked;
             const bypassWarp = document.getElementById('proxyBypassWarp').checked;
             const disableSSL = document.getElementById('proxyDisableSSL').checked;
+            const forceNativeMpd = document.getElementById('proxyNativeMpd').checked;
             const result = document.getElementById('proxyResult');
+            if (forceNativeMpd) {
+                endpoint = '/proxy/mpd/manifest.mpd';
+            }
 
             if (!destinationUrl) {
                 result.value = 'Inserisci una destination URL valida.';

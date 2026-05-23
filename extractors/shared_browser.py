@@ -77,7 +77,7 @@ async def close_shared_browser():
 async def _connect_existing_browser():
     try:
         browser = await _playwright.chromium.connect_over_cdp(
-            "http://localhost:9222",
+            "http://127.0.0.1:9222",
             timeout=5000,
         )
         logger.info("🔗 [Shared Browser] Connected to existing persistent instance on port 9222")
@@ -110,7 +110,7 @@ async def _launch_persistent_context(user_agent: str):
         logger.warning("⚠️ Port 9222 in use, connecting to existing browser...")
         await asyncio.sleep(1)
         browser = await _playwright.chromium.connect_over_cdp(
-            "http://localhost:9222",
+            "http://127.0.0.1:9222",
             timeout=10000,
         )
         contexts = browser.contexts
