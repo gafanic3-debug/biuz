@@ -13,7 +13,7 @@ import aiohttp
 from aiohttp import ClientSession, ClientTimeout, TCPConnector
 from aiohttp_socks import ProxyError as AioProxyError
 from python_socks import ProxyError as PyProxyError
-from config import get_proxy_for_url, TRANSPORT_ROUTES, GLOBAL_PROXIES, get_connector_for_proxy, SELECTED_PROXY_CONTEXT
+from config import FLARESOLVERR_URL, FLARESOLVERR_TIMEOUT, get_proxy_for_url, TRANSPORT_ROUTES, GLOBAL_PROXIES, get_connector_for_proxy, get_solver_proxy_url, SELECTED_PROXY_CONTEXT
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +33,8 @@ class VixSrcExtractor:
         self.proxies = proxies or GLOBAL_PROXIES
         self.is_vixsrc = True
         self.last_used_proxy = None
+        self.flaresolverr_url = FLARESOLVERR_URL
+        self.flaresolverr_timeout = FLARESOLVERR_TIMEOUT
     @staticmethod
     def _normalize_proxy_url(proxy_value: str) -> str:
         proxy_value = proxy_value.strip()
@@ -140,6 +142,72 @@ class VixSrcExtractor:
         if last_error:
             raise ExtractorError(f"curl_cffi request failed for {url}: {last_error}")
         raise ExtractorError(f"curl_cffi HTTP error {last_status} for {url}")
+
+    async def _request_flaresolverr(self, cmd: str, url: str = None, headers: dict | None = None) -> dict:
+        """Sends a request via FlareSolverr to bypass Cloudflare challenges."""
+        if not self.flaresolverr_url:
+            raise ExtractorError("FlareSolverr URL not configured")
+
+        endpoint = f"{self.flaresolverr_url.rstrip('/')}/v1"
+        payload = {
+            "cmd": cmd,
+            "maxTimeout": (self.flaresolverr_timeout + 60) * 1000,
+        }
+        fs_headers = {}
+        if url:
+            payload["url"] = url
+            proxy = get_proxy_for_url(url, TRANSPORT_ROUTES, self.proxies)
+            if proxy:
+                payload["proxy"] = {"url": proxy}
+                solver_proxy = get_solver_proxy_url(proxy)
+                fs_headers["X-Proxy-Server"] = solver_proxy
+
+        async with aiohttp.ClientSession() as session:
+            try:
+                async with session.post(
+                    endpoint,
+                    json=payload,
+                    headers=fs_headers,
+                    timeout=aiohttp.ClientTimeout(total=self.flaresolverr_timeout + 95),
+                ) as resp:
+                    data = await resp.json()
+                    if resp.status != 200:
+                        msg = data.get("message", f"HTTP {resp.status}")
+                        raise ExtractorError(f"FlareSolverr HTTP {resp.status}: {msg}")
+            except ExtractorError:
+                raise
+            except Exception as e:
+                raise ExtractorError(f"FlareSolverr request failed: {e}")
+
+        if data.get("status") != "ok":
+            raise ExtractorError(f"FlareSolverr: {data.get('message', 'unknown error')}")
+
+        return data
+
+    async def _fetch_via_flaresolverr(self, url: str, headers: dict = None) -> "MockResponse":
+        """Fallback: use FlareSolverr to bypass Cloudflare/JS challenges."""
+        logger.info("FlareSolverr fallback for %s", url)
+        result = await self._request_flaresolverr("request.get", url, headers=headers)
+        solution = result.get("solution", {})
+        html = solution.get("response", "")
+        if not html:
+            raise ExtractorError("FlareSolverr returned empty response")
+
+        class MockResponse:
+            def __init__(self_, text_content, status, response_url):
+                self_._text = text_content
+                self_.status = status
+                self_.status_code = status
+                self_.text = text_content
+                self_.url = response_url
+                self_.headers = {}
+            async def text_async(self_):
+                return self_._text
+            def raise_for_status(self_):
+                if self_.status >= 400:
+                    raise ExtractorError(f"HTTP error {self_.status} for {self_.url}")
+
+        return MockResponse(html, 200, url)
 
     @staticmethod
     def _normalize_base_site(url: str) -> str:
@@ -527,10 +595,17 @@ class VixSrcExtractor:
                         )
                     except Exception as robust_err:
                         logger.warning("Robust request failed for vixcloud.co, trying curl_cffi: %s", robust_err)
-                        response = await self._make_curl_request(
-                            url,
-                            headers={"referer": self._normalize_base_site(url) + "/"},
-                        )
+                        try:
+                            response = await self._make_curl_request(
+                                url,
+                                headers={"referer": self._normalize_base_site(url) + "/"},
+                            )
+                        except Exception as curl_err:
+                            logger.warning("curl_cffi failed for vixcloud.co, trying FlareSolverr: %s", curl_err)
+                            response = await self._fetch_via_flaresolverr(
+                                url,
+                                headers={"referer": self._normalize_base_site(url) + "/"},
+                            )
                 else:
                     response = await self._make_robust_request(
                         url,
