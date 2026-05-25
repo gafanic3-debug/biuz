@@ -13,6 +13,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0 # Scarica tutta la cronologia, serve per il merge senza errori
 
       - name: Sincronizza con EasyProxy
         run: |
@@ -23,8 +24,10 @@ jobs:
           git remote add upstream https://github.com/realbestia1/EasyProxy.git
           git fetch upstream
           
-          # Unisce le novità nel tuo repository
+          # Si posiziona sulla branca principale corretta
           git checkout main || git checkout master
+          
+          # Unisce le novità nel tuo repository
           git merge upstream/main || git merge upstream/master --allow-unrelated-histories
           
           # Invia gli aggiornamenti sul tuo GitHub
@@ -32,5 +35,4 @@ jobs:
 
       - name: Invia segnale di Deploy a Render
         run: |
-          # SOSTITUISCI l'URL qui sotto con il tuo "Deploy Hook" preso da Render
           curl -X POST "https://api.render.com/deploy/srv-d7solghkh4rs7398frug?key=bgntv1iuDuk"
