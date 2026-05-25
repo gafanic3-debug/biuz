@@ -88,46 +88,54 @@ class VixSrcExtractor:
         for proxy in self.proxies or []:
             if proxy not in proxies_to_try:
                 proxies_to_try.append(proxy)
-        if not proxies_to_try:
+        # Always try direct connection as last resort
+        if None not in proxies_to_try:
             proxies_to_try.append(None)
 
+        impersonations = ["chrome131", "chrome124", "chrome120"]
         last_status = None
         last_error = None
         final_headers = self._fresh_headers(**(headers or {}))
 
-        for proxy_value in proxies_to_try:
-            request_kwargs = {}
-            proxy = self._normalize_proxy_url(proxy_value) if proxy_value else None
-            if proxy:
-                request_kwargs["proxies"] = {"http": proxy, "https": proxy}
-                logger.info("curl_cffi using proxy %s for %s", proxy, url)
-            else:
-                logger.info("curl_cffi using direct connection for %s", url)
+        # Remove User-Agent to avoid TLS fingerprint mismatch with impersonation
+        final_headers.pop("User-Agent", None)
+        final_headers.pop("user-agent", None)
 
-            try:
-                async with CurlAsyncSession(impersonate="chrome131") as session:
-                    resp = await session.get(
+        for imp in impersonations:
+            for proxy_value in proxies_to_try:
+                request_kwargs = {}
+                proxy = self._normalize_proxy_url(proxy_value) if proxy_value else None
+                if proxy:
+                    request_kwargs["proxies"] = {"http": proxy, "https": proxy}
+                    logger.info("curl_cffi using proxy %s for %s (imp=%s)", proxy, url, imp)
+                else:
+                    logger.info("curl_cffi using direct connection for %s (imp=%s)", url, imp)
+
+                try:
+                    async with CurlAsyncSession(impersonate=imp) as session:
+                        resp = await session.get(
+                            url,
+                            headers=final_headers,
+                            timeout=30,
+                            allow_redirects=True,
+                            **request_kwargs,
+                        )
+                        content = resp.text
+
+                    last_status = resp.status_code
+                    logger.info(
+                        "curl_cffi status=%s len=%s for %s (imp=%s)",
+                        resp.status_code,
+                        len(content) if content else 0,
                         url,
-                        headers=final_headers,
-                        timeout=30,
-                        allow_redirects=True,
-                        **request_kwargs,
+                        imp,
                     )
-                    content = resp.text
-
-                last_status = resp.status_code
-                logger.info(
-                    "curl_cffi status=%s len=%s for %s",
-                    resp.status_code,
-                    len(content) if content else 0,
-                    url,
-                )
-                if 200 <= resp.status_code < 300:
-                    self.last_used_proxy = proxy
-                    return MockResponse(content, resp.status_code, url)
-            except Exception as exc:
-                last_error = exc
-                logger.warning("curl_cffi request failed for %s via %s: %s", url, proxy or "direct", exc)
+                    if 200 <= resp.status_code < 300:
+                        self.last_used_proxy = proxy
+                        return MockResponse(content, resp.status_code, url)
+                except Exception as exc:
+                    last_error = exc
+                    logger.warning("curl_cffi request failed for %s via %s (imp=%s): %s", url, proxy or "direct", imp, exc)
 
         if last_error:
             raise ExtractorError(f"curl_cffi request failed for {url}: {last_error}")
@@ -510,10 +518,22 @@ class VixSrcExtractor:
             if "/embed/" in parsed_url.path:
                 self._raise_if_embed_expired(url)
                 if parsed_url.netloc.lower().endswith("vixcloud.co"):
-                    response = await self._make_curl_request(
-                        url,
-                        headers={"referer": self._normalize_base_site(url) + "/"},
-                    )
+                    try:
+                        response = await self._make_robust_request(
+                            url,
+                            headers=self._fresh_headers(
+                                referer=self._normalize_base_site(url) + "/"
+                            ),
+                        )
+                    except Exception as robust_err:
+                        logger.warning("Robust request failed for vixcloud.co, trying curl_cffi: %s", robust_err)
+                        try:
+                            response = await self._make_curl_request(
+                                url,
+                                headers={"referer": self._normalize_base_site(url) + "/"},
+                            )
+                        except Exception as curl_err:
+                            logger.warning("curl_cffi failed for vixcloud.co, no more fallbacks: %s", curl_err)
                 else:
                     response = await self._make_robust_request(
                         url,
@@ -557,23 +577,61 @@ class VixSrcExtractor:
             if response.status_code != 200:
                 raise ExtractorError("URL component extraction failed, invalid request")
 
-            script_content = await self._parse_html_simple(response.text, "script")
-            if not script_content:
-                raise ExtractorError("No script found in body")
+            async def _extract_from_html(html: str) -> str | None:
+                """Try to extract playlist URL from HTML via script content, then data-page JSON."""
+                script = await self._parse_html_simple(html, "script")
+                if script:
+                    try:
+                        return self._extract_playlist_from_embed(script)
+                    except ExtractorError:
+                        pass
+                app_div = await self._parse_html_simple(html, "div", {"id": "app"})
+                if not app_div or not app_div.get("data-page"):
+                    return None
+                try:
+                    data_page = app_div["data-page"].replace("&quot;", '"')
+                    data = json.loads(data_page)
+                    def _search_json(obj):
+                        results = {}
+                        if isinstance(obj, dict):
+                            for k, v in obj.items():
+                                kl = k.lower()
+                                if kl in ("token", "expires", "url", "src") and isinstance(v, str):
+                                    results[kl] = v
+                                elif not (results.get("token") and results.get("expires") and results.get("url")):
+                                    results.update(_search_json(v))
+                        elif isinstance(obj, list):
+                            for item in obj:
+                                results.update(_search_json(item))
+                                if results.get("token") and results.get("expires") and results.get("url"):
+                                    break
+                        return results
+                    found = _search_json(data)
+                    if found.get("token") and found.get("expires") and found.get("url"):
+                        parsed_url = urlparse(found["url"])
+                        query_params = parse_qsl(parsed_url.query, keep_blank_values=True)
+                        query_params.extend([("token", found["token"]), ("expires", found["expires"])])
+                        if "canPlayFHD" in html:
+                            query_params.append(("h", "1"))
+                        query_params.append(("lang", "it"))
+                        return urlunparse(parsed_url._replace(query=urlencode(query_params)))
+                except (json.JSONDecodeError, Exception):
+                    pass
+                return None
 
-            try:
-                final_url = self._extract_playlist_from_embed(script_content)
-                stream_headers = self._fresh_headers(Referer=url)
+            final_url = await _extract_from_html(response.text)
 
-                logger.info("VixSrc URL extracted successfully: %s", final_url)
-                return {
-                    "destination_url": final_url,
-                    "request_headers": stream_headers,
-                    "mediaflow_endpoint": self.mediaflow_endpoint,
-                    "selected_proxy": self.last_used_proxy,
-                }
-            except Exception as e:
-                raise ExtractorError(f"JavaScript script parsing error: {e}")
+            if not final_url:
+                raise ExtractorError("No playlist data found in response")
+
+            stream_headers = self._fresh_headers(Referer=url)
+            logger.info("VixSrc URL extracted successfully: %s", final_url)
+            return {
+                "destination_url": final_url,
+                "request_headers": stream_headers,
+                "mediaflow_endpoint": self.mediaflow_endpoint,
+                "selected_proxy": self.last_used_proxy,
+            }
 
         except Exception as e:
             logger.error("VixSrc extraction failed: %s", str(e))
