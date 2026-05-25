@@ -1,59 +1,36 @@
-name: Sync EasyProxy and Deploy to Render
+name: Sincronizza e Deploy su Render
 
 on:
   schedule:
-    # Controlla gli aggiornamenti ogni ora (puoi rimettere '0 4 * * *' se preferisci una volta al giorno)
-    - cron: '0 * * * *'
-  workflow_dispatch: # Ti permette di avviare il processo anche manualmente da GitHub
+    - cron: '0 * * * *' # Controlla gli aggiornamenti ogni ora
+  workflow_dispatch: # Ti permette di farlo partire anche a mano da GitHub
 
 jobs:
-  sync-and-deploy:
+  sync:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout del tuo repository
+      - name: Controlla il tuo codice
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
-          # Necessario per permettere ad Action di fare il push modificando i file
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Sincronizzazione con il repository originale (Upstream)
-        id: sync_step
+      - name: Sincronizza con EasyProxy
         run: |
           git config --global user.name "GitHub Action"
           git config --global user.email "action@github.com"
           
-          # Aggiunge il repository originale come sorgente
+          # Collega il repository originale e scarica le novità
           git remote add upstream https://github.com/realbestia1/EasyProxy.git
           git fetch upstream
           
-          # Determina la branca principale del tuo repository (main o master)
-          BRANCH=$(git branch -r | grep -E 'origin/(main|master)' | head -1 | sed 's/.*origin\///')
-          git checkout $BRANCH
-          
-          # Salva il codice identificativo del commit attuale prima del merge
-          BEFORE_SHA=$(git rev-parse HEAD)
-          
-          # Tenta il merge dalla branca principale di EasyProxy
+          # Unisce le novità nel tuo repository
+          git checkout main || git checkout master
           git merge upstream/main || git merge upstream/master --allow-unrelated-histories
           
-          # Salva l'identificativo dopo il merge
-          AFTER_SHA=$(git rev-parse HEAD)
-          
-          # Controlla se ci sono reali novità
-          if [ "$BEFORE_SHA" != "$AFTER_SHA" ]; then
-            echo "Nuovi aggiornamenti rilevati. Invio modifiche su GitHub..."
-            git push origin HEAD
-            # Imposta una variabile per confermare che il codice è cambiato
-            echo "updated=true" >> $GITHUB_OUTPUT
-          else
-            echo "Nessun nuovo aggiornamento trovato su EasyProxy."
-            echo "updated=false" >> $GITHUB_OUTPUT
-          fi
+          # Invia gli aggiornamenti sul tuo GitHub
+          git push origin HEAD
 
-      - name: Trigger Deploy su Render (Solo se ci sono novità)
-        # Esegue questo passaggio solo se il push precedente ha avuto successo E se ci sono modifiche reali
-        if: steps:sync_step.outputs.updated == 'true' || github.event_name == 'workflow_dispatch'
+      - name: Invia segnale di Deploy a Render
         run: |
-          echo "Avvio del deploy automatico su Render..."
-          curl -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"
+          # SOSTITUISCI l'URL qui sotto con il tuo "Deploy Hook" preso da Render
+          curl -X POST "https://api.render.com/deploy/srv-d7solghkh4rs7398frug?key=bgntv1iuDuk"
