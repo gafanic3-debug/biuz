@@ -7,6 +7,9 @@ import contextvars
 import urllib.request
 from dotenv import load_dotenv
 
+_proxy_file_cache: dict[str, tuple[float, list]] = {}
+_PROXY_FILE_TTL = 600
+
 # ContextVar for thread-safe/async-safe warp bypass state
 BYPASS_WARP_CONTEXT = contextvars.ContextVar("bypass_warp", default=False)
 SELECTED_PROXY_CONTEXT = contextvars.ContextVar("selected_proxy", default=None)
@@ -59,10 +62,14 @@ def parse_proxies(proxy_env_var: str) -> list:
 
 
 def parse_proxy_file(proxy_file_env_var: str) -> list:
-    """Read proxies from comma-separated file paths/URLs, one proxy per line."""
+    """Read proxies from comma-separated file paths/URLs, one proxy per line. Cached for 10 min."""
     raw = os.environ.get(proxy_file_env_var, "").strip()
     if not raw:
         return []
+    now = time.time()
+    cached = _proxy_file_cache.get(raw)
+    if cached and (now - cached[0]) < _PROXY_FILE_TTL:
+        return cached[1]
     proxies = []
     for path in raw.split(","):
         path = path.strip()
@@ -85,6 +92,7 @@ def parse_proxy_file(proxy_file_env_var: str) -> list:
                     proxies.append(line)
         except Exception as e:
             logger.warning(f"Error reading proxy file {path}: {e}")
+    _proxy_file_cache[raw] = (now, proxies)
     return proxies
 
 
