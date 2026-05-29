@@ -611,13 +611,17 @@ class HLSProxyCoreMixin:
             # Create new session and cache it
             logger.info(f"🌍 Creating proxy session: {proxy}")
             try:
-                # Gestione manuale di socks5h per compatibilità con aiohttp-socks
+                # Gestione manuale di socks5h/socks4a per compatibilità con aiohttp-socks
                 connector_url = proxy
-                rdns = True # Default per SOCKS5
+                rdns = True # Default per SOCKS5/4
                 if connector_url.startswith("socks5h://"):
                     connector_url = connector_url.replace("socks5h://", "socks5://")
                     rdns = True
                     logger.debug(f"🕵️ SOCKS5h detected: forcing remote DNS resolution")
+                elif connector_url.startswith("socks4a://"):
+                    connector_url = connector_url.replace("socks4a://", "socks4://")
+                    rdns = True
+                    logger.debug(f"🕵️ SOCKS4a detected: forcing remote DNS resolution")
 
                 # Unlimited connections for maximum speed
                 connector = ProxyConnector.from_url(

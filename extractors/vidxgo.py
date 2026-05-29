@@ -123,8 +123,8 @@ class VidXgoExtractor:
     # ------------------------------------------------------------------ fetch
 
     async def _fetch(self, url: str, headers: dict) -> str:
-        """GET `url` trying direct first, then each configured proxy."""
-        paths = [None] + self._get_proxies_for_url(url)
+        """GET `url` trying configured proxies first, then direct fallback."""
+        paths = self._get_proxies_for_url(url) + [None]
         last_error = None
         for proxy in paths:
             timeout = ClientTimeout(total=25, connect=10, sock_read=20)

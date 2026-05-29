@@ -122,16 +122,15 @@ class DeltabitExtractor:
                 return None
 
             pref_p = get_proxy_for_url(url, TRANSPORT_ROUTES, self.proxies, self.bypass_warp_active)
-            tasks = [
-                asyncio.create_task(try_path(pref_p)) if pref_p else None,
-                asyncio.create_task(try_path(None)),
-                asyncio.create_task(try_path(None, is_fs=True))
-            ]
-            tasks = [t for t in tasks if t]
-            
             html = None
-            for task in asyncio.as_completed(tasks):
-                res = await task
+            attempts = []
+            if pref_p:
+                attempts.append((pref_p, False))
+            attempts.append((None, True))
+            attempts.append((None, False))
+
+            for attempt_proxy, use_fs in attempts:
+                res = await try_path(attempt_proxy, is_fs=use_fs)
                 if res:
                     html, url, ua, new_cookies = res
                     cookies.update(new_cookies)

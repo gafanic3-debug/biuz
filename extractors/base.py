@@ -32,18 +32,26 @@ class BaseExtractor:
         self.mediaflow_endpoint = "hls_proxy"
         self.proxies = proxies or GLOBAL_PROXIES
         self.extractor_name = extractor_name
+        self._session_proxy = None
         
 
     async def _get_session(self, url: str = None):
-        if self.session is None or self.session.closed:
+        proxy = None
+        if url:
+            proxy = get_proxy_for_url(url, TRANSPORT_ROUTES, self.proxies)
+        elif self.proxies:
+            proxy = random.choice(self.proxies)
+
+        if (
+            self.session is None
+            or self.session.closed
+            or self._session_proxy != proxy
+        ):
+            if self.session and not self.session.closed:
+                await self.session.close()
+
             timeout = ClientTimeout(total=60, connect=30, sock_read=30)
-            
-            proxy = None
-            if url:
-                proxy = get_proxy_for_url(url, TRANSPORT_ROUTES, self.proxies)
-            elif self.proxies:
-                proxy = random.choice(self.proxies)
-                
+
             if proxy:
                 connector = get_connector_for_proxy(proxy)
             else:
@@ -60,6 +68,7 @@ class BaseExtractor:
                 connector=connector, 
                 headers={'User-Agent': self.base_headers["User-Agent"]}
             )
+            self._session_proxy = proxy
         return self.session
 
     async def _make_request(self, url: str, method: str = "GET", headers: dict = None, retries: int = 2, **kwargs):

@@ -184,10 +184,18 @@ class DLStreamsExtractor:
             if not self.stream_origin:
                 self.stream_origin = origin
 
-    async def _launch_browser(self):
+    async def _launch_browser(self, url: str | None = None):
+        target_url = url or self.entry_origin or self.stream_origin
+        proxy_url = get_proxy_for_url(
+            target_url,
+            TRANSPORT_ROUTES,
+            self.proxies or GLOBAL_PROXIES,
+            bypass_warp=self.bypass_warp_active,
+        ) if target_url else None
         async with self._browser_launch_lock:
             self._playwright, self._browser, self._context = await get_shared_browser_context(
-                self.base_headers["User-Agent"]
+                self.base_headers["User-Agent"],
+                proxy_url=proxy_url,
             )
 
             # Ensure we have a persistent dummy page to keep the context/browser alive
@@ -278,7 +286,7 @@ class DLStreamsExtractor:
 
         logger.debug("DLStreams browser key fetch starting for %s", key_url)
         try:
-            playwright, browser, context = await self._launch_browser()
+            playwright, browser, context = await self._launch_browser(key_url)
             try:
                 page = await context.new_page()
 
@@ -324,7 +332,7 @@ class DLStreamsExtractor:
 
     async def _fetch_manifest_directly(self, url: str, headers: dict) -> str | None:
         """Attempts to fetch the manifest directly using captured session cookies."""
-        session = await self._get_session()
+        session = await self._get_session(url)
         try:
             async with session.get(url, headers=headers, timeout=10) as resp:
                 if resp.status == 200:
@@ -339,8 +347,8 @@ class DLStreamsExtractor:
 
     async def _lookup_server_key(self, lookup_base: str, channel_key: str, referer_origin: str) -> str:
         """Best-effort server key lookup used to build manifest URL candidates."""
-        session = await self._get_session()
         lookup_url = f"{lookup_base.rstrip('/')}/server_lookup?channel_id={channel_key}"
+        session = await self._get_session(lookup_url)
         headers = {
             "Referer": f"{referer_origin.rstrip('/')}/",
             "User-Agent": self.base_headers["User-Agent"],
@@ -376,7 +384,7 @@ class DLStreamsExtractor:
             resolved_player_url = player_url or self._build_player_urls(channel_id)[0]
             logger.debug("DLStreams browser session capture starting for %s", channel_key)
             try:
-                playwright, browser, context = await self._launch_browser()
+                playwright, browser, context = await self._launch_browser(resolved_player_url)
                 page = None
                 keep_page = False
                 on_response = None
@@ -620,9 +628,10 @@ class DLStreamsExtractor:
                 logger.warning("DLStreams browser session capture failed for %s: %s", channel_key, exc)
                 return None, None
 
-    async def _get_session(self):
+    async def _get_session(self, url: str | None = None):
         # Determine the correct proxy for the current state
-        proxy_url = get_proxy_for_url(self.entry_origin, TRANSPORT_ROUTES, self.proxies, bypass_warp=self.bypass_warp_active)
+        target_url = url or self.stream_origin or self.entry_origin
+        proxy_url = get_proxy_for_url(target_url, TRANSPORT_ROUTES, self.proxies, bypass_warp=self.bypass_warp_active)
         
         # If we have an existing session, check if its proxy matches what we need now
         if self.session and not self.session.closed:
@@ -681,7 +690,7 @@ class DLStreamsExtractor:
             # Using bypass_warp_active set during initialization
 
             channel_key = f"premium{channel_id}"
-            session = await self._get_session()
+            session = await self._get_session(url)
             
             # Use cached session info if available to find server and origin
             iframe_origin = self.entry_origin.rstrip("/")

@@ -38,22 +38,30 @@ class VavooExtractor:
         self.proxies = proxies or GLOBAL_PROXIES
         self._cached_sig = None
         self._cached_sig_ts = 0
+        self._session_proxy = None
 
     def _get_random_proxy(self):
         """Restituisce un proxy casuale dalla lista."""
         return random.choice(self.proxies) if self.proxies else None
         
     async def _get_session(self, url: str = None):
-        if self.session is None or self.session.closed:
+        # Determina il proxy per l'URL (se fornito)
+        proxy = None
+        if url:
+            proxy = get_proxy_for_url(url, TRANSPORT_ROUTES, self.proxies)
+        else:
+            proxy = self._get_random_proxy()
+
+        if (
+            self.session is None
+            or self.session.closed
+            or self._session_proxy != proxy
+        ):
+            if self.session and not self.session.closed:
+                await self.session.close()
+
             timeout = ClientTimeout(total=60, connect=30, sock_read=30)
-            
-            # Determina il proxy per l'URL (se fornito)
-            proxy = None
-            if url:
-                proxy = get_proxy_for_url(url, TRANSPORT_ROUTES, self.proxies)
-            else:
-                proxy = self._get_random_proxy()
-                
+
             if proxy:
                 logger.debug(f"Using proxy for Vavoo session: {proxy}")
                 connector = get_connector_for_proxy(proxy)
@@ -73,6 +81,7 @@ class VavooExtractor:
                 connector=connector,
                 headers={'User-Agent': self.base_headers["user-agent"]}
             )
+            self._session_proxy = proxy
         return self.session
 
     async def _get_auth_signature(self) -> Optional[str]:

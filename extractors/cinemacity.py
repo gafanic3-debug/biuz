@@ -7,7 +7,7 @@ import urllib.parse
 from typing import Any, Optional
 
 import aiohttp
-from config import FLARESOLVERR_URL, FLARESOLVERR_TIMEOUT, get_proxy_for_url, TRANSPORT_ROUTES, GLOBAL_PROXIES
+from config import FLARESOLVERR_URL, FLARESOLVERR_TIMEOUT, get_proxy_for_url, TRANSPORT_ROUTES, GLOBAL_PROXIES, get_solver_proxy_url
 from config import PROXY_TEST_TIMEOUT
 from curl_cffi.requests import AsyncSession
 
@@ -34,6 +34,8 @@ class CinemaCityExtractor:
         proxy_value = proxy_value.strip()
         if proxy_value.startswith("socks5://"):
             return proxy_value.replace("socks5://", "socks5h://", 1)
+        if proxy_value.startswith("socks4://") or proxy_value.startswith("socks4a://"):
+            return proxy_value
         if "://" not in proxy_value:
             return f"socks5h://{proxy_value}"
         return proxy_value
@@ -57,7 +59,8 @@ class CinemaCityExtractor:
         for proxy in proxies_to_try:
             payload = {"cmd": "request.get", "url": self.base_url, "maxTimeout": (self.flaresolverr_timeout + 60) * 1000}
             if proxy:
-                payload["proxy"] = proxy.replace("socks5h://", "socks5://", 1)
+                cleaned = get_solver_proxy_url(proxy)
+                payload["proxy"] = cleaned
             async with aiohttp.ClientSession() as s:
                 async with s.post(endpoint, json=payload, timeout=aiohttp.ClientTimeout(total=self.flaresolverr_timeout + 95)) as r:
                     d = await r.json()

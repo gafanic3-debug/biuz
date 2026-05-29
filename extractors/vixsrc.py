@@ -13,7 +13,7 @@ import aiohttp
 from aiohttp import ClientSession, ClientTimeout, TCPConnector
 from aiohttp_socks import ProxyError as AioProxyError
 from python_socks import ProxyError as PyProxyError
-from config import get_proxy_for_url, TRANSPORT_ROUTES, GLOBAL_PROXIES, get_connector_for_proxy, SELECTED_PROXY_CONTEXT
+from config import get_proxy_for_url, TRANSPORT_ROUTES, GLOBAL_PROXIES, get_connector_for_proxy, SELECTED_PROXY_CONTEXT, get_solver_proxy_url
 from config import PROXY_TEST_TIMEOUT, PROXY_TEST_CONCURRENCY
 from config import FLARESOLVERR_URL, FLARESOLVERR_TIMEOUT, WARP_PROXY_URL
 
@@ -55,6 +55,8 @@ class VixSrcExtractor:
         proxy_value = proxy_value.strip()
         if proxy_value.startswith("socks5://"):
             return proxy_value.replace("socks5://", "socks5h://", 1)
+        if proxy_value.startswith("socks4://") or proxy_value.startswith("socks4a://"):
+            return proxy_value
         if "://" not in proxy_value:
             return f"socks5h://{proxy_value}"
         return proxy_value
@@ -81,12 +83,18 @@ class VixSrcExtractor:
         warp = WARP_PROXY_URL.strip()
         proxies_to_try = []
         if warp:
-            proxies_to_try.append(warp.replace("socks5h://", "socks5://", 1))
+            proxies_to_try.append(get_solver_proxy_url(warp))
+        route_proxy = get_proxy_for_url(site, TRANSPORT_ROUTES, self.proxies)
+        if route_proxy:
+            solver_route_proxy = get_solver_proxy_url(route_proxy)
+            if solver_route_proxy not in proxies_to_try:
+                proxies_to_try.append(solver_route_proxy)
         # FlareSolverr opens a browser per attempt; keep this short.
         # Normal Cloudflare bypass is handled by curl_cffi proxy rotation first.
         for proxy in (self.proxies or [])[:3]:
-            if proxy and proxy not in proxies_to_try:
-                proxies_to_try.append(proxy.replace("socks5h://", "socks5://", 1))
+            solver_proxy = get_solver_proxy_url(proxy) if proxy else None
+            if solver_proxy and solver_proxy not in proxies_to_try:
+                proxies_to_try.append(solver_proxy)
         if None not in proxies_to_try:
             proxies_to_try.append(None)
         for proxy in proxies_to_try:
@@ -102,7 +110,7 @@ class VixSrcExtractor:
                     self._fs_user_agent = d["solution"].get("userAgent",
                         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
                     self._fs_proxy = proxy
-                    self.last_used_proxy = proxy.replace("socks5://", "socks5h://", 1) if proxy else None
+                    self.last_used_proxy = self._normalize_proxy_url(proxy) if proxy else None
                     logger.info(f"VixSrc: FS cookies via {proxy or 'direct'}: {list(self._fs_cookies.keys())}")
                     return
                 logger.warning("FS failed via %s: %s", proxy or "direct", d.get("message", ""))
@@ -126,7 +134,7 @@ class VixSrcExtractor:
 
         request_kwargs = {}
         if self._fs_proxy:
-            proxy_url = self._fs_proxy.replace("socks5://", "socks5h://", 1)
+            proxy_url = self._normalize_proxy_url(self._fs_proxy)
             request_kwargs["proxies"] = {"http": proxy_url, "https": proxy_url}
 
         async with CurlAsyncSession(impersonate="chrome124") as sess:

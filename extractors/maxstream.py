@@ -102,7 +102,9 @@ class MaxstreamExtractor:
         try:
             # Using Google DoH API
             url = f"https://dns.google/resolve?name={domain}&type=A"
-            async with ClientSession(timeout=ClientTimeout(total=5)) as session:
+            proxy = next(iter(self._get_proxies_for_url(url)), None)
+            connector = get_connector_for_proxy(proxy) if proxy else TCPConnector(ssl=False)
+            async with ClientSession(timeout=ClientTimeout(total=5), connector=connector) as session:
                 async with session.get(url) as resp:
                     if resp.status == 200:
                         data = await resp.json()
@@ -130,9 +132,8 @@ class MaxstreamExtractor:
         domain = parsed_url.netloc
         headers = kwargs.get("headers") or self.base_headers
         post_data = kwargs.get("data")
-        paths = [{"proxy": None, "use_ip": None}]
-        for proxy in self._get_proxies_for_url(url):
-            paths.append({"proxy": proxy, "use_ip": None})
+        paths = [{"proxy": proxy, "use_ip": None} for proxy in self._get_proxies_for_url(url)]
+        paths.append({"proxy": None, "use_ip": None})
 
         if "maxstream" in domain:
             for ip in (await self._resolve_doh(domain))[:2]:

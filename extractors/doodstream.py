@@ -43,6 +43,8 @@ class DoodStreamExtractor:
         proxy_value = proxy_value.strip()
         if proxy_value.startswith("socks5://"):
             return proxy_value.replace("socks5://", "socks5h://", 1)
+        if proxy_value.startswith("socks4://") or proxy_value.startswith("socks4a://"):
+            return proxy_value
         if "://" not in proxy_value:
             return f"socks5h://{proxy_value}"
         return proxy_value

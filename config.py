@@ -233,7 +233,7 @@ def get_proxy_for_url(url: str, transport_routes: list, global_proxies: list, by
 
 
 def get_connector_for_proxy(proxy_url: str, **kwargs):
-    """Crea un ProxyConnector (aiohttp-socks) gestendo correttamente socks5h."""
+    """Crea un ProxyConnector (aiohttp-socks) gestendo socks5h e socks4a."""
     from aiohttp_socks import ProxyConnector
 
     if not proxy_url:
@@ -245,17 +245,22 @@ def get_connector_for_proxy(proxy_url: str, **kwargs):
     if connector_url.startswith("socks5h://"):
         connector_url = connector_url.replace("socks5h://", "socks5://")
         rdns = True
+    elif connector_url.startswith("socks4a://"):
+        connector_url = connector_url.replace("socks4a://", "socks4://")
+        rdns = True
 
     return ProxyConnector.from_url(connector_url, rdns=rdns, **kwargs)
 
 
 def get_solver_proxy_url(proxy_url: str | None) -> str | None:
-    """Normalizza il proxy per solver/browser che non supportano socks5h."""
+    """Normalizza il proxy per solver/browser che non supportano socks5h/socks4a."""
     if not proxy_url:
         return None
 
     if proxy_url.startswith("socks5h://"):
         return proxy_url.replace("socks5h://", "socks5://", 1)
+    if proxy_url.startswith("socks4a://"):
+        return proxy_url.replace("socks4a://", "socks4://", 1)
 
     return proxy_url
 
@@ -344,7 +349,7 @@ MAX_RECORDING_DURATION = int(os.environ.get("MAX_RECORDING_DURATION", 28800))
 RECORDINGS_RETENTION_DAYS = int(os.environ.get("RECORDINGS_RETENTION_DAYS", 7))
 
 # --- Version/Mode Configuration ---
-APP_VERSION = "2.7.23"
+APP_VERSION = "2.7.24"
 
 _has_solvers = os.path.exists("flaresolverr")
 VERSION_MODE = "Full" if _has_solvers else "Light"
