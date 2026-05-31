@@ -1,31 +1,28 @@
-name: Sincronizza e Deploy su Render
+name: Sync EasyProxy Daily
 
 on:
   schedule:
-    - cron: '0 * * * *' # Controlla gli aggiornamenti ogni ora
-  workflow_dispatch: # Ti permette di farlo partire anche a mano da GitHub
+    - cron: '0 4 * * *'
+  workflow_dispatch: 
 
 jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-      - name: Controlla il tuo codice
+      - name: Checkout your repo
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          fetch-depth: 0 # Scarica tutta la cronologia, serve per il merge senza errori
+          fetch-depth: 0
 
-      - name: Sincronizza con EasyProxy
+      - name: Sync with upstream
         run: |
           git config --global user.name "GitHub Action"
           git config --global user.email "action@github.com"
-          
-          # Collega il repository originale e scarica le novità
           git remote add upstream https://github.com/realbestia1/EasyProxy.git
           git fetch upstream
-          
-          # Si posiziona sulla branca principale corretta
           git checkout main || git checkout master
+          git merge upstream/main || git merge upstream/master --allow-unrelated-histories
+          git push origin HEAD
           
           # Unisce le novità nel tuo repository
           git merge upstream/main || git merge upstream/master --allow-unrelated-histories
