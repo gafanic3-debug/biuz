@@ -3,34 +3,11 @@ from services.proxy_shared import *
 class HLSProxyCoreMixin:
 
     async def shorten_hls_url(self, url: str) -> str:
-        """Crea un ID breve per un URL e lo memorizza nella mappa."""
+        """Codifica l'URL direttamente in base64 (nessuna memoria usata per mappe)."""
         if not url:
             return ""
-        now = time.time()
-        current_ttl = hls_url_ttl_for(
-            url,
-            self.hls_url_ttl,
-            self.hls_url_extended_ttl,
-        )
-        expired_keys = [
-            key for key, (_, ts, ttl) in self.hls_url_map.items()
-            if now - ts > ttl
-        ]
-        for key in expired_keys:
-            self.hls_url_map.pop(key, None)
-
-        if len(self.hls_url_map) >= self.hls_url_max_entries:
-            oldest_keys = sorted(
-                self.hls_url_map.items(),
-                key=lambda item: item[1][1]
-            )[: max(1, len(self.hls_url_map) - self.hls_url_max_entries + 1)]
-            for key, _ in oldest_keys:
-                self.hls_url_map.pop(key, None)
-
-        # Usa un hash corto (12 caratteri) per l'URL
-        url_id = f"u_{hashlib.md5(url.encode()).hexdigest()[:12]}"
-        self.hls_url_map[url_id] = (url, now, current_ttl)
-        return url_id
+        encoded = base64.urlsafe_b64encode(url.encode()).decode().rstrip("=")
+        return f"u_{encoded}"
 
     def _refresh_segment_token(self, segment_url: str) -> str | None:
         """
@@ -220,7 +197,6 @@ class HLSProxyCoreMixin:
         stable_key = self._captured_manifest_stable_key(source_url, url)
         url_id = f"cm_{hashlib.md5(stable_key.encode()).hexdigest()[:12]}"
         self.captured_hls_manifest_map[url_id] = (url, manifest, headers, now, ttl, source_url)
-        self.hls_url_map[url_id] = (url, now, ttl)
         if source_url and (
             url_id not in self.captured_hls_refresh_tasks
             or self.captured_hls_refresh_tasks[url_id].done()
@@ -681,6 +657,22 @@ class HLSProxyCoreMixin:
             host=host,
             bypass_warp=bypass_warp,
         )
+
+    async def _resolve_url_id(self, url_id: str) -> str | None:
+        """Risolve un url_id nell'URL originale."""
+        if not url_id:
+            return None
+        # CM IDs stored in captured_hls_manifest_map
+        if url_id.startswith("cm_") and url_id in self.captured_hls_manifest_map:
+            return self.captured_hls_manifest_map[url_id][0]
+        # U_ IDs are base64-encoded URLs
+        if url_id.startswith("u_"):
+            try:
+                padded = url_id[2:] + "=="
+                return base64.urlsafe_b64decode(padded).decode()
+            except Exception:
+                return None
+        return None
 
     async def cleanup(self):
         """Pulizia delle risorse"""

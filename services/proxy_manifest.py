@@ -35,13 +35,12 @@ class HLSProxyManifestHandlerMixin:
             if url_id and url_id in self.captured_hls_manifest_map:
                 captured_url, _, _, _, entry_ttl, _ = self.captured_hls_manifest_map[url_id]
                 target_url = captured_url
-                self.hls_url_map[url_id] = (captured_url, time.time(), entry_ttl)
-            if url_id and url_id in self.hls_url_map:
-                target_url, stored_at, entry_ttl = self.hls_url_map[url_id]
-                if time.time() - stored_at <= entry_ttl:
+            if url_id and not target_url:
+                resolved = await self._resolve_url_id(url_id)
+                if resolved:
+                    target_url = resolved
                     logger.debug(f"🔗 Resolved short URL ID: {url_id}")
                 else:
-                    self.hls_url_map.pop(url_id, None)
                     target_url = None
 
             force_refresh = request.query.get("force", "false").lower() == "true"
@@ -81,7 +80,6 @@ class HLSProxyManifestHandlerMixin:
                         entry_ttl,
                         source_url,
                     )
-                    self.hls_url_map[url_id] = (captured_url, time.time(), entry_ttl)
                     scheme = request.headers.get("X-Forwarded-Proto", request.scheme)
                     host = request.headers.get("X-Forwarded-Host", request.host)
                     proxy_base = f"{scheme}://{host}"

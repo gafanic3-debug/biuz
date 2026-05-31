@@ -16,6 +16,7 @@ from python_socks import ProxyError as PyProxyError
 from config import TRANSPORT_ROUTES, GLOBAL_PROXIES, get_connector_for_proxy, SELECTED_PROXY_CONTEXT, get_solver_proxy_url, get_extractor_proxies, get_ordered_proxies_for_url, get_preferred_proxy_for_url, should_allow_direct_fallback, mark_proxy_dead
 from config import PROXY_TEST_TIMEOUT, PROXY_TEST_CONCURRENCY
 from config import FLARESOLVERR_URL, FLARESOLVERR_TIMEOUT
+from utils.solver_manager import ensure_flaresolverr
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +82,7 @@ class VixSrcExtractor:
         if self._fs_cookies and self._fs_user_agent:
             return
         site = self._normalize_base_site(target_url)
+        await ensure_flaresolverr()
         endpoint = f"{self.flaresolverr_url.rstrip('/')}/v1"
         proxies_to_try = []
         # FlareSolverr opens a browser per attempt; keep this short.

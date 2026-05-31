@@ -17,7 +17,7 @@ from config import (
     get_preferred_proxy_for_url,
 )
 from utils.cookie_cache import CookieCache
-from utils.solver_manager import solver_manager
+from utils.solver_manager import solver_manager, ensure_flaresolverr
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +59,7 @@ class DeltabitExtractor:
         return self.session
 
     async def _request_flaresolverr(self, cmd: str, url: str = None, post_data: str = None, session_id: str = None, wait: int = 0, headers: dict | None = None) -> dict:
+        await ensure_flaresolverr()
         endpoint = f"{settings.flaresolverr_url.rstrip('/')}/v1"
         payload = {"cmd": cmd, "maxTimeout": (settings.flaresolverr_timeout + 60) * 1000}
         if wait > 0: payload["wait"] = wait

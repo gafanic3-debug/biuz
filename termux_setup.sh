@@ -193,11 +193,7 @@ echo "Chromium: ${CHROME_BIN:-missing}"
 echo "Chromedriver: $(command -v chromedriver 2>/dev/null || echo missing)"
 echo ""
 
-echo "Starting FlareSolverr (Headless)..."
-cd /root/EasyProxy/flaresolverr && PORT=8191 python3 src/flaresolverr.py &
-FLARE_PID=$!
-
-sleep 2
+echo "FlareSolverr starts on-demand via Python code"
 
 echo "Starting EasyProxy on port $PORT..."
 cd /root/EasyProxy

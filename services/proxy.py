@@ -40,12 +40,6 @@ class HLSProxy(
         self.session = None
         self.flex_session = None
 
-        # Registry for HLS URL shortening (to handle extremely long multi-path URLs)
-        # url_id -> (actual_url, timestamp, ttl)
-        self.hls_url_map = {}
-        self.hls_url_ttl = 3600
-        self.hls_url_extended_ttl = 10800
-        self.hls_url_max_entries = 2000
         self.captured_hls_manifest_map = {}
         self.captured_hls_refresh_tasks = {}
 

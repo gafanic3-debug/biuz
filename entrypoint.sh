@@ -133,8 +133,7 @@ else
     echo "FlareSolverr will use per-request routing from EasyProxy (supports real warp=off bypass)."
 fi
 
-echo "Starting FlareSolverr (v3 Python)..."
-cd /app/flaresolverr && eval $PROXY_VARS PORT=8191 python3 src/flaresolverr.py > /dev/null &
+echo "FlareSolverr available for lazy start (on-demand via Python code)"
 
 echo "Starting EasyProxy..."
 cd /app
