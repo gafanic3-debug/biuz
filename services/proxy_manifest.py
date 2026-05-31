@@ -270,7 +270,16 @@ class HLSProxyManifestHandlerMixin:
                     original_channel_url,
                     request.query.get("host", ""),
                 )
-                disable_ssl = request.query.get("disable_ssl") == "1" or force_disable_ssl
+                is_vavoo_req = (
+                    "vavoo" in (request.query.get("h_Referer") or "").lower()
+                    or "vavoo" in (request.query.get("h_Origin") or "").lower()
+                    or "vavoo" in (combined_headers.get("Referer") or "").lower()
+                    or "vavoo" in (combined_headers.get("Origin") or "").lower()
+                    or "vavoo" in (request.headers.get("Referer") or "").lower()
+                    or "vavoo" in stream_url.lower()
+                    or any(x in stream_url.lower() for x in ["/sunshine/", "lokke", "mediahubmx"])
+                )
+                disable_ssl = request.query.get("disable_ssl") == "1" or force_disable_ssl or is_vavoo_req
 
                 async def shorten_captured_manifest_url(manifest_url: str) -> str:
                     captured_text = captured_manifests.get(manifest_url)
