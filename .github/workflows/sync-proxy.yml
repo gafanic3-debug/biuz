@@ -23,13 +23,3 @@ jobs:
           git checkout main || git checkout master
           git merge upstream/main || git merge upstream/master --allow-unrelated-histories
           git push origin HEAD
-          
-          # Unisce le novità nel tuo repository
-          git merge upstream/main || git merge upstream/master --allow-unrelated-histories
-          
-          # Invia gli aggiornamenti sul tuo GitHub
-          git push origin HEAD
-
-      - name: Invia segnale di Deploy a Render
-        run: |
-          curl -X POST "https://api.render.com/deploy/srv-d7solghkh4rs7398frug?key=bgntv1iuDuk"
