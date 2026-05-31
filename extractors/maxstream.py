@@ -7,7 +7,8 @@ import socket
 from urllib.parse import urlparse
 from aiohttp import ClientSession, ClientTimeout, TCPConnector
 from aiohttp.resolver import DefaultResolver
-from config import FLARESOLVERR_TIMEOUT, FLARESOLVERR_URL, GLOBAL_PROXIES, TRANSPORT_ROUTES, get_proxy_for_url, get_connector_for_proxy, get_solver_proxy_url
+from config import FLARESOLVERR_TIMEOUT, FLARESOLVERR_URL, get_connector_for_proxy, get_solver_proxy_url, get_extractor_proxies, get_ordered_proxies_for_url, should_allow_direct_fallback
+from config import PROXY_TEST_TIMEOUT, PROXY_TEST_CONCURRENCY
 
 
 logger = logging.getLogger(__name__)
@@ -65,18 +66,8 @@ class MaxstreamExtractor:
         return random.choice(self.proxies) if self.proxies else None
 
     def _get_proxies_for_url(self, url: str) -> list[str]:
-        """Build ordered proxy list for current URL, honoring TRANSPORT_ROUTES first."""
-        ordered = []
-
-        route_proxy = get_proxy_for_url(url, TRANSPORT_ROUTES, GLOBAL_PROXIES)
-        if route_proxy:
-            ordered.append(route_proxy)
-
-        for proxy in self.proxies:
-            if proxy and proxy not in ordered:
-                ordered.append(proxy)
-
-        return ordered
+        """Build ordered proxy list: extractor-specific first, then route/global, then WARP."""
+        return get_ordered_proxies_for_url(url, "maxstream", self.proxies)
 
     async def _get_session(self, proxy=None):
         """Get or create session, optionally with a specific proxy."""
@@ -104,7 +95,9 @@ class MaxstreamExtractor:
         try:
             # Using Google DoH API
             url = f"https://dns.google/resolve?name={domain}&type=A"
-            async with ClientSession(timeout=ClientTimeout(total=5)) as session:
+            proxy = next(iter(self._get_proxies_for_url(url)), None)
+            connector = get_connector_for_proxy(proxy) if proxy else TCPConnector(ssl=False)
+            async with ClientSession(timeout=ClientTimeout(total=5), connector=connector) as session:
                 async with session.get(url) as resp:
                     if resp.status == 200:
                         data = await resp.json()
@@ -132,9 +125,8 @@ class MaxstreamExtractor:
         domain = parsed_url.netloc
         headers = kwargs.get("headers") or self.base_headers
         post_data = kwargs.get("data")
-        paths = [{"proxy": None, "use_ip": None}]
-        for proxy in self._get_proxies_for_url(url):
-            paths.append({"proxy": proxy, "use_ip": None})
+        paths = [{"proxy": proxy, "use_ip": None} for proxy in self._get_proxies_for_url(url)]
+        paths.append({"proxy": None, "use_ip": None})
 
         if "maxstream" in domain:
             for ip in (await self._resolve_doh(domain))[:2]:
@@ -187,7 +179,9 @@ class MaxstreamExtractor:
             logger.debug("curl_cffi not installed, skipping Maxstream browser request")
             return None
 
-        proxies = [None] + self._get_proxies_for_url(url)
+        proxies = self._get_proxies_for_url(url)
+        if should_allow_direct_fallback(proxies):
+            proxies.append(None)
         request_headers = dict(headers or self.base_headers)
         loop = asyncio.get_running_loop()
 
@@ -202,7 +196,7 @@ class MaxstreamExtractor:
                     cookies=self.cookies or None,
                     proxies=proxies_arg,
                     impersonate=profile,
-                    timeout=30,
+                    timeout=PROXY_TEST_TIMEOUT,
                     allow_redirects=True,
                     verify=False,
                 )
@@ -216,16 +210,39 @@ class MaxstreamExtractor:
                 logger.debug(f"curl_cffi maxstream error for {url}: proxy={proxy or 'direct'} profile={profile}: {exc}")
                 return 0, None, {}, proxy, profile
 
-        for proxy in proxies:
-            for profile in ("chrome131", "chrome124", "edge101"):
-                status, text, cookies, used_proxy, used_profile = await loop.run_in_executor(None, do_request, proxy, profile)
-                if cookies:
-                    self.cookies.update(cookies)
-                if status < 400 and text:
-                    self.selected_proxy = used_proxy
-                    logger.debug(f"curl_cffi maxstream success via {used_proxy or 'direct'} profile={used_profile}")
-                    return text
-                logger.debug(f"curl_cffi maxstream failed for {url}: status={status} proxy={used_proxy or 'direct'} profile={used_profile}")
+        for profile in ("chrome131", "chrome124", "edge101"):
+            semaphore = asyncio.Semaphore(PROXY_TEST_CONCURRENCY)
+
+            async def _limited(proxy):
+                async with semaphore:
+                    return await loop.run_in_executor(None, do_request, proxy, profile)
+
+            specific = [p for p in get_extractor_proxies("maxstream") if p in proxies]
+            proxy_batches = [specific, [p for p in proxies if p not in specific]] if specific else [proxies]
+
+            for proxy_batch in proxy_batches:
+                if not proxy_batch:
+                    continue
+                tasks = [asyncio.create_task(_limited(proxy)) for proxy in proxy_batch]
+                try:
+                    for task in asyncio.as_completed(tasks):
+                        status, text, cookies, used_proxy, used_profile = await task
+                        if cookies:
+                            self.cookies.update(cookies)
+                        if status < 400 and text:
+                            for pending in tasks:
+                                if not pending.done():
+                                    pending.cancel()
+                            await asyncio.gather(*tasks, return_exceptions=True)
+                            self.selected_proxy = used_proxy
+                            logger.debug(f"curl_cffi maxstream success via {used_proxy or 'direct'} profile={used_profile}")
+                            return text
+                        logger.debug(f"curl_cffi maxstream failed for {url}: status={status} proxy={used_proxy or 'direct'} profile={used_profile}")
+                finally:
+                    for pending in tasks:
+                        if not pending.done():
+                            pending.cancel()
+                    await asyncio.gather(*tasks, return_exceptions=True)
         return None
 
     async def _fetch_with_flaresolverr(self, url: str, method="GET", headers=None, post_data=None):

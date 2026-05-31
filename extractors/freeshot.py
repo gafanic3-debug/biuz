@@ -4,7 +4,7 @@ import asyncio
 import urllib.parse
 import aiohttp
 from aiohttp import ClientSession, ClientTimeout, TCPConnector
-from config import FLARESOLVERR_URL, FLARESOLVERR_TIMEOUT, get_proxy_for_url, TRANSPORT_ROUTES, GLOBAL_PROXIES, get_connector_for_proxy
+from config import FLARESOLVERR_URL, FLARESOLVERR_TIMEOUT, GLOBAL_PROXIES, get_connector_for_proxy, get_preferred_proxy_for_url
 
 logger = logging.getLogger(__name__)
 
@@ -28,16 +28,24 @@ class FreeshotExtractor:
         }
         self.proxies = proxies or GLOBAL_PROXIES
         self.session = None
+        self._session_proxy = None
         self.flaresolverr_url = FLARESOLVERR_URL
         self.flaresolverr_timeout = FLARESOLVERR_TIMEOUT
 
 
     async def _get_session(self, url: str = None):
-        if self.session is None or self.session.closed:
-            proxy = get_proxy_for_url(url, TRANSPORT_ROUTES, self.proxies) if url else None
+        proxy = get_preferred_proxy_for_url(url, "freeshot", self.proxies)
+        if (
+            self.session is None
+            or self.session.closed
+            or self._session_proxy != proxy
+        ):
+            if self.session and not self.session.closed:
+                await self.session.close()
             connector = get_connector_for_proxy(proxy, ssl=False) if proxy else TCPConnector(ssl=False, limit=0, use_dns_cache=True)
             timeout = ClientTimeout(total=30)
             self.session = ClientSession(connector=connector, timeout=timeout)
+            self._session_proxy = proxy
         return self.session
 
     async def _fetch_text(self, url: str, headers: dict) -> str:

@@ -21,7 +21,7 @@ class StreamtapeExtractor(BaseExtractor):
         final_url = None
         for i in range(len(matches)):
             if i > 0 and matches[i-1] == matches[i] and "ip=" in matches[i]:
-                final_url = f"https://streamtape.com/get_video?{matches[i]}"
+                final_url = f"https://stape.me/get_video?{matches[i]}"
                 break
         
         if not final_url:
@@ -29,7 +29,7 @@ class StreamtapeExtractor(BaseExtractor):
              # Sometimes just taking the last match with 'ip=' works
              for match in matches:
                  if "ip=" in match:
-                     final_url = f"https://streamtape.com/get_video?{match}"
+                     final_url = f"https://stape.me/get_video?{match}"
 
         if not final_url:
             raise ExtractorError("Streamtape URL extraction failed")

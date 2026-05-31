@@ -15,7 +15,6 @@ from Crypto.Signature import DSS
 from extractors.base import BaseExtractor, ExtractorError
 from utils import python_aesgcm
 
-
 class F16PxExtractor(BaseExtractor):
     F16PX_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
 
@@ -29,9 +28,6 @@ class F16PxExtractor(BaseExtractor):
         if padding:
             value += "=" * padding
         return base64.b64decode(value)
-
-    def _join_key_parts(self, parts) -> bytes:
-        return b"".join(self._b64url_decode(p) for p in parts)
 
     @staticmethod
     def _b64url_encode(value: bytes) -> str:
@@ -50,39 +46,12 @@ class F16PxExtractor(BaseExtractor):
                 return 0
         return sorted(sources, key=label_key, reverse=True)[0]["url"]
 
-    # ✅ Correct fingerprint (ResolveURL compatible)
-    def _make_fingerprint_payload(self) -> dict:
-        viewer_id = os.urandom(16).hex()
-        device_id = os.urandom(16).hex()
-        now = int(time.time())
-
-        token_payload = {
-            "viewer_id": viewer_id,
-            "device_id": device_id,
-            "confidence": round(random.uniform(0.6, 0.9), 2),
-            "iat": now,
-            "exp": now + 600,
-        }
-
-        payload_b64 = base64.urlsafe_b64encode(
-            json.dumps(token_payload, separators=(",", ":")).encode()
-        ).rstrip(b"=").decode()
-
-        # ✅ FIX: SHA256 (NOT HMAC)
-        sig = hashlib.sha256(payload_b64.encode()).digest()
-
-        sig_b64 = base64.urlsafe_b64encode(sig).rstrip(b"=").decode()
-        token = f"{payload_b64}.{sig_b64}"
-
-        # match ResolveURL structure
-        fingerprint = {
-            "viewer_id": viewer_id,
-            "device_id": device_id,
-            "confidence": token_payload["confidence"],
-            "token": token,
-        }
-
-        return {"fingerprint": fingerprint}
+    def _join_key_parts(self, parts: list, version: str) -> bytes:
+        v = int(version)
+        n = len(parts)  # always 30
+        ka = self._b64url_decode(parts[v - 1])
+        kb = self._b64url_decode(parts[n - v])
+        return ka + kb
 
     async def _make_attested_fingerprint(self, origin: str, embed_url: str) -> dict:
         headers = {
@@ -149,11 +118,11 @@ class F16PxExtractor(BaseExtractor):
         }
 
     def _decrypt_sources(self, pb: dict) -> list:
-        iv = self._b64url_decode(pb["iv"])
-        key = self._join_key_parts(pb["key_parts"])
+        iv      = self._b64url_decode(pb["iv"])
+        key     = self._join_key_parts(pb["key_parts"], pb["version"])
         payload = self._b64url_decode(pb["payload"])
 
-        cipher = python_aesgcm.new(key)
+        cipher    = python_aesgcm.new(key)
         decrypted = cipher.open(iv, payload)
 
         if decrypted is None:
@@ -163,29 +132,27 @@ class F16PxExtractor(BaseExtractor):
 
     async def extract(self, url: str, **kwargs) -> dict:
         parsed = urlparse(url)
-        host = parsed.netloc
+        host   = parsed.netloc
         origin = f"{parsed.scheme}://{parsed.netloc}"
 
         match = re.search(r"/e/([A-Za-z0-9]+)", parsed.path or "")
         if not match:
             raise ExtractorError("F16PX: Invalid embed URL")
 
-        media_id = match.group(1)
-
-        # ✅ FIX: correct endpoint
-        api_url = f"https://{host}/api/videos/{media_id}/embed/playback"
+        media_id  = match.group(1)
+        api_url   = f"https://{host}/api/videos/{media_id}/embed/playback"
         embed_url = f"{origin}/e/{media_id}"
 
         headers = self.base_headers.copy()
         headers.update({
-            "Accept": "application/json, text/plain, */*",
-            "Content-Type": "application/json",
-            "Origin": origin,
-            "Referer": embed_url,
-            "User-Agent": self.F16PX_USER_AGENT,
-            "X-Embed-Origin": host,
+            "Accept":          "application/json, text/plain, */*",
+            "Content-Type":    "application/json",
+            "Origin":          origin,
+            "Referer":         embed_url,
+            "User-Agent":      self.F16PX_USER_AGENT,
+            "X-Embed-Origin":  host,
             "X-Embed-Referer": embed_url,
-            "X-Embed-Parent": embed_url,
+            "X-Embed-Parent":  embed_url,
         })
 
         try:
@@ -194,7 +161,7 @@ class F16PxExtractor(BaseExtractor):
                 headers=headers,
                 method="POST",
                 retries=1,
-                json=await self._make_attested_fingerprint(origin, embed_url)
+                json=await self._make_attested_fingerprint(origin, embed_url),
             )
             data = json.loads(resp.text)
         except json.JSONDecodeError:
@@ -209,8 +176,8 @@ class F16PxExtractor(BaseExtractor):
         if data.get("sources"):
             best = self._pick_best(data["sources"])
             return {
-                "destination_url": best,
-                "request_headers": headers,
+                "destination_url":    best,
+                "request_headers":    headers,
                 "mediaflow_endpoint": self.mediaflow_endpoint,
             }
 
@@ -228,16 +195,16 @@ class F16PxExtractor(BaseExtractor):
             raise ExtractorError("F16PX: No sources after decryption")
 
         out_headers = {
-            "referer": embed_url,
-            "origin": origin,
+            "referer":         embed_url,
+            "origin":          origin,
             "Accept-Language": "en-US,en;q=0.5",
-            "Accept": "*/*",
-            "User-Agent": self.F16PX_USER_AGENT,
+            "Accept":          "*/*",
+            "User-Agent":      self.F16PX_USER_AGENT,
         }
 
         return {
-            "destination_url": self._pick_best(sources),
-            "request_headers": out_headers,
+            "destination_url":    self._pick_best(sources),
+            "request_headers":    out_headers,
             "mediaflow_endpoint": self.mediaflow_endpoint,
         }
 

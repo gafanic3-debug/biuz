@@ -1,18 +1,16 @@
 import logging
 import asyncio
-import random
 import aiohttp
 from aiohttp import ClientSession, ClientTimeout, TCPConnector, ClientConnectionError
 from aiohttp_socks import ProxyError as AioProxyError
 from python_socks import ProxyError as PyProxyError
 
 from config import (
-    get_proxy_for_url, 
-    TRANSPORT_ROUTES, 
     get_connector_for_proxy,
     SELECTED_PROXY_CONTEXT,
     GLOBAL_PROXIES,
-    mark_proxy_dead
+    mark_proxy_dead,
+    get_preferred_proxy_for_url,
 )
 
 logger = logging.getLogger(__name__)
@@ -32,18 +30,22 @@ class BaseExtractor:
         self.mediaflow_endpoint = "hls_proxy"
         self.proxies = proxies or GLOBAL_PROXIES
         self.extractor_name = extractor_name
+        self._session_proxy = None
         
 
     async def _get_session(self, url: str = None):
-        if self.session is None or self.session.closed:
+        proxy = get_preferred_proxy_for_url(url, self.extractor_name, self.proxies)
+
+        if (
+            self.session is None
+            or self.session.closed
+            or self._session_proxy != proxy
+        ):
+            if self.session and not self.session.closed:
+                await self.session.close()
+
             timeout = ClientTimeout(total=60, connect=30, sock_read=30)
-            
-            proxy = None
-            if url:
-                proxy = get_proxy_for_url(url, TRANSPORT_ROUTES, self.proxies)
-            elif self.proxies:
-                proxy = random.choice(self.proxies)
-                
+
             if proxy:
                 connector = get_connector_for_proxy(proxy)
             else:
@@ -60,6 +62,7 @@ class BaseExtractor:
                 connector=connector, 
                 headers={'User-Agent': self.base_headers["User-Agent"]}
             )
+            self._session_proxy = proxy
         return self.session
 
     async def _make_request(self, url: str, method: str = "GET", headers: dict = None, retries: int = 2, **kwargs):
@@ -117,7 +120,7 @@ class BaseExtractor:
                 
                 if is_proxy_err and SELECTED_PROXY_CONTEXT.get():
                     proxy_to_mark = SELECTED_PROXY_CONTEXT.get()
-                    if proxy_to_mark and "127.0.0.1" in proxy_to_mark:
+                    if proxy_to_mark:
                         mark_proxy_dead(proxy_to_mark)
                     SELECTED_PROXY_CONTEXT.set(None)
                 

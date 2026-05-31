@@ -4,7 +4,11 @@ import random
 import socket
 import time
 import contextvars
+import urllib.request
 from dotenv import load_dotenv
+
+_proxy_file_cache: dict[str, tuple[float, list]] = {}
+_PROXY_FILE_TTL = 600
 
 # ContextVar for thread-safe/async-safe warp bypass state
 BYPASS_WARP_CONTEXT = contextvars.ContextVar("bypass_warp", default=False)
@@ -22,6 +26,8 @@ LOG_LEVEL_MAP = {
     "CRITICAL": logging.CRITICAL,
 }
 LOG_LEVEL = LOG_LEVEL_MAP.get(LOG_LEVEL_STR, logging.WARNING)
+PROXY_TEST_TIMEOUT = int(os.environ.get("PROXY_TEST_TIMEOUT", "5"))
+PROXY_TEST_CONCURRENCY = max(1, int(os.environ.get("PROXY_TEST_CONCURRENCY", "60")))
 
 logging.basicConfig(
     level=LOG_LEVEL,
@@ -40,12 +46,147 @@ logger = logging.getLogger(__name__)
 logger.setLevel(LOG_LEVEL)
 
 
+def _strip_env_assignment(value: str, env_var: str) -> str:
+    prefix = f"{env_var}="
+    return value[len(prefix):].strip() if value.startswith(prefix) else value
+
+
 def parse_proxies(proxy_env_var: str) -> list:
     """Analizza una stringa di proxy separati da virgola da una variabile d'ambiente."""
-    proxies_str = os.environ.get(proxy_env_var, "").strip()
+    proxies_str = _strip_env_assignment(os.environ.get(proxy_env_var, "").strip(), proxy_env_var)
     if proxies_str:
-        return [p.strip() for p in proxies_str.split(",") if p.strip()]
+        proxies = []
+        for proxy in proxies_str.split(","):
+            proxy = proxy.strip()
+            if proxy.startswith("="):
+                proxy = proxy[1:].strip()
+            if proxy:
+                proxies.append(proxy)
+        return proxies
     return []
+
+
+def parse_proxy_file(proxy_file_env_var: str) -> list:
+    """Read proxies from comma-separated file paths/URLs, one proxy per line. Cached for 10 min."""
+    raw = _strip_env_assignment(os.environ.get(proxy_file_env_var, "").strip(), proxy_file_env_var)
+    if not raw:
+        return []
+    now = time.time()
+    cached = _proxy_file_cache.get(raw)
+    if cached and (now - cached[0]) < _PROXY_FILE_TTL:
+        return cached[1]
+    proxies = []
+    for path in raw.split(","):
+        path = path.strip()
+        if not path:
+            continue
+        try:
+            if path.startswith(("http://", "https://")):
+                with urllib.request.urlopen(path, timeout=10) as response:
+                    text = response.read().decode("utf-8", errors="ignore")
+            else:
+                with open(path, "r", encoding="utf-8") as file:
+                    text = file.read()
+            for line in text.splitlines():
+                line = line.strip()
+                if line.startswith("="):
+                    line = line[1:].strip()
+                if not line or line.startswith("#"):
+                    continue
+                if line not in proxies:
+                    proxies.append(line)
+        except Exception as e:
+            logger.warning(f"Error reading proxy file {path}: {e}")
+    _proxy_file_cache[raw] = (now, proxies)
+    return proxies
+
+
+def get_extractor_proxies(extractor_name: str) -> list:
+    """Returns proxies from EXTRACTOR_PROXY and EXTRACTOR_PROXY_FILE env vars."""
+    if not extractor_name:
+        return []
+    prefix = extractor_name.upper().replace('-', '_')
+    proxies = []
+    for proxy in parse_proxies(f"{prefix}_PROXY") + parse_proxy_file(f"{prefix}_PROXY_FILE"):
+        if proxy and proxy not in proxies:
+            proxies.append(proxy)
+    return proxies
+
+
+def get_preferred_proxy(proxies: list | None) -> str | None:
+    """Return the first alive proxy from an already ordered proxy list."""
+    for proxy in proxies or []:
+        if proxy and is_proxy_alive(proxy):
+            return proxy
+    return None
+
+
+def get_transport_route_proxy(url: str, transport_routes: list) -> str | None:
+    """Return only an explicit TRANSPORT_ROUTES proxy match, without global/WARP fallback."""
+    if not url or not transport_routes:
+        return None
+    normalized_url = url.lower()
+    for route in transport_routes:
+        url_pattern = route["url"].lower()
+        if url_pattern in normalized_url:
+            proxy_value = route.get("proxy")
+            if not proxy_value:
+                return None
+            return proxy_value if is_proxy_alive(proxy_value) else None
+    return None
+
+
+def get_ordered_proxies_for_url(
+    url: str | None,
+    extractor_name: str = "",
+    fallback_proxies: list | None = None,
+    bypass_warp: bool | None = None,
+) -> list[str]:
+    """Build proxy priority: extractor-specific, TRANSPORT_ROUTES, fallback/global, WARP."""
+    ordered = []
+
+    def add(proxy: str | None):
+        if proxy and proxy not in ordered and is_proxy_alive(proxy):
+            ordered.append(proxy)
+
+    for proxy in get_extractor_proxies(extractor_name or ""):
+        add(proxy)
+
+    add(get_transport_route_proxy(url or "", TRANSPORT_ROUTES))
+    add(SELECTED_PROXY_CONTEXT.get())
+
+    for proxy in fallback_proxies or []:
+        add(proxy)
+
+    for proxy in GLOBAL_PROXIES:
+        add(proxy)
+
+    if bypass_warp is None:
+        bypass_warp = BYPASS_WARP_CONTEXT.get()
+    normalized_url = (url or "").lower()
+    is_excluded = any(domain in normalized_url for domain in WARP_EXCLUDE_DOMAINS)
+    if ENABLE_WARP and not bypass_warp and not is_excluded:
+        add(WARP_PROXY_URL)
+
+    return ordered
+
+
+def should_allow_direct_fallback(proxies: list | None) -> bool:
+    """Allow direct fallback only when no proxy exists or the only proxy is WARP."""
+    active = [proxy for proxy in proxies or [] if proxy]
+    return not active or (len(active) == 1 and WARP_PROXY_URL and active[0] == WARP_PROXY_URL)
+
+
+def get_preferred_proxy_for_url(
+    url: str | None,
+    extractor_name: str = "",
+    fallback_proxies: list | None = None,
+    bypass_warp: bool | None = None,
+) -> str | None:
+    """Return the first proxy using the global ordered-priority rules."""
+    return get_preferred_proxy(
+        get_ordered_proxies_for_url(url, extractor_name, fallback_proxies, bypass_warp)
+    )
 
 
 def parse_transport_routes() -> list:
@@ -93,14 +234,27 @@ def parse_transport_routes() -> list:
 
 
 _PROXY_STATUS_CACHE = {"alive": True, "last_check": 0}
+DEAD_PROXIES = {}  # proxy_url -> expire_time
 
 
 def is_proxy_alive(proxy_url: str, force_check: bool = False) -> bool:
-    """Checks if a local proxy is reachable to avoid 'Connection Refused' errors."""
-    if not proxy_url or "127.0.0.1" not in proxy_url:
-        return True
+    """Checks if a proxy is reachable and not marked dead globally."""
+    if not proxy_url:
+        return False
 
     now = time.time()
+    # Check if proxy is globally marked dead
+    if proxy_url in DEAD_PROXIES:
+        expire_time = DEAD_PROXIES[proxy_url]
+        if now < expire_time:
+            return False
+        else:
+            # Dead time has expired
+            DEAD_PROXIES.pop(proxy_url, None)
+
+    if "127.0.0.1" not in proxy_url:
+        return True
+
     if not force_check and now - _PROXY_STATUS_CACHE["last_check"] < 10:
         return _PROXY_STATUS_CACHE["alive"]
 
@@ -122,14 +276,18 @@ def is_proxy_alive(proxy_url: str, force_check: bool = False) -> bool:
         return False
 
 
-def mark_proxy_dead(proxy_url: str):
-    """Manually mark a proxy as dead in the cache (e.g. after a failed request)."""
-    if not proxy_url or "127.0.0.1" not in proxy_url:
+def mark_proxy_dead(proxy_url: str, dead_duration: int = 300):
+    """Manually mark a proxy as dead in the cache (e.g. after a failed request) for a period of time."""
+    if not proxy_url:
         return
         
-    _PROXY_STATUS_CACHE["alive"] = False
-    _PROXY_STATUS_CACHE["last_check"] = time.time()
-    logging.warning(f"Proxy {proxy_url} marked as dead after failure.")
+    now = time.time()
+    DEAD_PROXIES[proxy_url] = now + dead_duration
+    logging.warning(f"Proxy {proxy_url} marked as dead for {dead_duration} seconds.")
+
+    if "127.0.0.1" in proxy_url:
+        _PROXY_STATUS_CACHE["alive"] = False
+        _PROXY_STATUS_CACHE["last_check"] = now
 
 
 def get_proxy_for_url(url: str, transport_routes: list, global_proxies: list, bypass_warp: bool = None) -> str:
@@ -137,41 +295,21 @@ def get_proxy_for_url(url: str, transport_routes: list, global_proxies: list, by
     if bypass_warp is None:
         bypass_warp = BYPASS_WARP_CONTEXT.get()
     if not url:
-        if bypass_warp:
-            return None
         proxy = random.choice(global_proxies) if global_proxies else None
         return proxy if is_proxy_alive(proxy) else None
-
-    # `bypass_warp` means "force real IP / direct connection" for the whole flow.
-    # Do this before TRANSPORT_ROUTES so host-specific routes cannot silently
-    # reintroduce WARP or another proxy when the caller explicitly asked to bypass.
-    if bypass_warp:
-        return None
 
     normalized_url = url.lower()
 
     if transport_routes:
         for route in transport_routes:
-            url_pattern = route["url"]
-            if url_pattern in url:
+            url_pattern = route["url"].lower()
+            if url_pattern in normalized_url:
                 proxy_value = route.get("proxy")
                 if not proxy_value:
                     return None
                 return proxy_value if is_proxy_alive(proxy_value) else None
 
-    # Check if WARP should be used
-    is_excluded = any(domain in normalized_url for domain in WARP_EXCLUDE_DOMAINS)
-    
-    if ENABLE_WARP and not bypass_warp and not is_excluded:
-        return WARP_PROXY_URL if is_proxy_alive(WARP_PROXY_URL) else None
-
-    # Fallback to Global Proxies
-    # Se bypass_warp è True, preferiamo la connessione DIRETTA (Real IP) per coerenza
-    # invece di pescare un proxy a caso dalla lista globale, che causerebbe rotazione IP.
-    if bypass_warp:
-        return None
-
-    # Use sticky proxy if already selected for this request context
+    # Explicit GLOBAL_PROXY wins over WARP. warp=off disables only WARP, not configured proxies.
     proxy = SELECTED_PROXY_CONTEXT.get()
     if proxy:
         return proxy if is_proxy_alive(proxy) else None
@@ -179,12 +317,21 @@ def get_proxy_for_url(url: str, transport_routes: list, global_proxies: list, by
     proxy = random.choice(global_proxies) if global_proxies else None
     if proxy:
         SELECTED_PROXY_CONTEXT.set(proxy)
-        
+
+    if proxy:
+        return proxy if is_proxy_alive(proxy) else None
+
+    # Check if WARP should be used only when no explicit proxy is configured.
+    is_excluded = any(domain in normalized_url for domain in WARP_EXCLUDE_DOMAINS)
+
+    if ENABLE_WARP and not bypass_warp and not is_excluded:
+        return WARP_PROXY_URL if is_proxy_alive(WARP_PROXY_URL) else None
+
     return proxy if is_proxy_alive(proxy) else None
 
 
 def get_connector_for_proxy(proxy_url: str, **kwargs):
-    """Crea un ProxyConnector (aiohttp-socks) gestendo correttamente socks5h."""
+    """Crea un ProxyConnector (aiohttp-socks) gestendo socks5h e socks4a."""
     from aiohttp_socks import ProxyConnector
 
     if not proxy_url:
@@ -196,17 +343,22 @@ def get_connector_for_proxy(proxy_url: str, **kwargs):
     if connector_url.startswith("socks5h://"):
         connector_url = connector_url.replace("socks5h://", "socks5://")
         rdns = True
+    elif connector_url.startswith("socks4a://"):
+        connector_url = connector_url.replace("socks4a://", "socks4://")
+        rdns = True
 
     return ProxyConnector.from_url(connector_url, rdns=rdns, **kwargs)
 
 
 def get_solver_proxy_url(proxy_url: str | None) -> str | None:
-    """Normalizza il proxy per solver/browser che non supportano socks5h."""
+    """Normalizza il proxy per solver/browser che non supportano socks5h/socks4a."""
     if not proxy_url:
         return None
 
     if proxy_url.startswith("socks5h://"):
         return proxy_url.replace("socks5h://", "socks5://", 1)
+    if proxy_url.startswith("socks4a://"):
+        return proxy_url.replace("socks4a://", "socks4://", 1)
 
     return proxy_url
 
@@ -221,12 +373,12 @@ def get_ssl_setting_for_url(url: str, transport_routes: list) -> bool:
     if not url or not transport_routes:
         return any(
             domain in normalized_url
-            for domain in ("vavoo.to", "vavoo.tv", "lokke.app", "mediahubmx")
+            for domain in ("vavoo.to", "vavoo.tv", "lokke.app", "mediahubmx", "vixsrc.to", "vix-content.net")
         )
 
     if any(
         domain in normalized_url
-        for domain in ("vavoo.to", "vavoo.tv", "lokke.app", "mediahubmx")
+        for domain in ("vavoo.to", "vavoo.tv", "lokke.app", "mediahubmx", "vixsrc.to", "vix-content.net")
     ):
         return True
 
@@ -242,10 +394,6 @@ ENABLE_WARP = os.environ.get("ENABLE_WARP", "false").lower() == "true"
 WARP_PROXY_URL = os.environ.get("WARP_PROXY_URL", "").strip() or "socks5h://127.0.0.1:1080"
 
 _default_warp_exclude_domains = [
-    "cinemacity.cc",
-    "*.cinemacity.cc",
-    "cccdn.net",
-    "*.cccdn.net",
     "strem.fun",
     "*.strem.fun",
     "torrentio.strem.fun",
@@ -299,7 +447,7 @@ MAX_RECORDING_DURATION = int(os.environ.get("MAX_RECORDING_DURATION", 28800))
 RECORDINGS_RETENTION_DAYS = int(os.environ.get("RECORDINGS_RETENTION_DAYS", 7))
 
 # --- Version/Mode Configuration ---
-APP_VERSION = "2.6.32"
+APP_VERSION = "2.7.42"
 
 _has_solvers = os.path.exists("flaresolverr")
 VERSION_MODE = "Full" if _has_solvers else "Light"

@@ -10,7 +10,7 @@ from aiohttp import ClientSession, ClientTimeout, TCPConnector
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 from yarl import URL
 
-from config import GLOBAL_PROXIES, TRANSPORT_ROUTES, get_connector_for_proxy, get_proxy_for_url
+from config import GLOBAL_PROXIES, get_connector_for_proxy, get_preferred_proxy_for_url
 from extractors.shared_browser import close_shared_browser, get_shared_browser_context
 
 logger = logging.getLogger(__name__)
@@ -168,12 +168,9 @@ class EmbedSportsExtractor:
         except Exception:
             pass
 
-    async def _get_session(self) -> ClientSession:
-        proxy_url = get_proxy_for_url(
-            EMBEDSPORTS_ORIGIN,
-            TRANSPORT_ROUTES,
-            self.proxies or GLOBAL_PROXIES,
-            bypass_warp=self.bypass_warp_active,
+    async def _get_session(self, url: str = EMBEDSPORTS_ORIGIN) -> ClientSession:
+        proxy_url = get_preferred_proxy_for_url(
+            url, "embedsports", self.proxies or GLOBAL_PROXIES, self.bypass_warp_active
         )
 
         if self.session and not self.session.closed and self._session_proxy == proxy_url:
@@ -196,10 +193,14 @@ class EmbedSportsExtractor:
         self._session_proxy = proxy_url
         return self.session
 
-    async def _launch_browser(self):
+    async def _launch_browser(self, url: str = EMBEDSPORTS_ORIGIN):
+        proxy_url = get_preferred_proxy_for_url(
+            url, "embedsports", self.proxies or GLOBAL_PROXIES, self.bypass_warp_active
+        )
         async with self._browser_launch_lock:
             self._playwright, self._browser, self._context = await get_shared_browser_context(
-                self.base_headers["User-Agent"]
+                self.base_headers["User-Agent"],
+                proxy_url=proxy_url,
             )
             self._update_shared_activity()
             return self._playwright, self._browser, self._context
@@ -207,7 +208,7 @@ class EmbedSportsExtractor:
     async def _http_refresh_manifest(self, cache_key: str, stream_url: str, extra_headers: dict | None = None) -> tuple[str, str] | None:
         """Try to refresh manifest via HTTP with cached cookies. Returns None if it fails."""
         try:
-            session = await self._get_session()
+            session = await self._get_session(stream_url)
             headers = self._build_playback_headers(stream_url)
             if extra_headers:
                 headers.update(extra_headers)
@@ -296,7 +297,7 @@ class EmbedSportsExtractor:
                 self._captured_cookies = cached[3] or self._captured_cookies
                 return cached[0], cached[1]
 
-            _, _, context = await self._launch_browser()
+            _, _, context = await self._launch_browser(embed_url)
             page = await context.new_page()
 
             async def handle_popup(popup):
@@ -373,7 +374,7 @@ class EmbedSportsExtractor:
                     raise ExtractorError("EmbedSports: no m3u8 response captured")
 
                 self._captured_cookies = await context.cookies()
-                session = await self._get_session()
+                session = await self._get_session(embed_url)
                 yarl_url = URL(embed_url)
                 for cookie in self._captured_cookies:
                     session.cookie_jar.update_cookies(
@@ -433,7 +434,7 @@ class EmbedSportsExtractor:
             raise ExtractorError(f"EmbedSports extraction failed: {exc}") from exc
 
     async def fetch_manifest_via_browser(self, embed_url: str, manifest_url: str) -> tuple[str, str] | None:
-        _, _, context = await self._launch_browser()
+        _, _, context = await self._launch_browser(manifest_url)
         page = await context.new_page()
         try:
             try:

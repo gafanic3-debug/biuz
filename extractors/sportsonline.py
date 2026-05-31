@@ -8,7 +8,7 @@ from typing import Dict, Any
 import random
 import aiohttp
 from aiohttp import ClientSession, ClientTimeout, TCPConnector
-from config import get_proxy_for_url, TRANSPORT_ROUTES, GLOBAL_PROXIES, get_connector_for_proxy
+from config import GLOBAL_PROXIES, get_connector_for_proxy, get_preferred_proxy_for_url
 
 
 logger = logging.getLogger(__name__)
@@ -65,6 +65,7 @@ class SportsonlineExtractor:
         self.mediaflow_endpoint = "hls_manifest_proxy"
         self._session_lock = asyncio.Lock()
         self.proxies = proxies or GLOBAL_PROXIES
+        self._session_proxy = None
 
     def _get_random_proxy(self):
         return random.choice(self.proxies) if self.proxies else None
@@ -152,16 +153,21 @@ class SportsonlineExtractor:
         )
 
     async def _get_session(self, url: str = None):
-        if self.session is None or self.session.closed:
+        # Determina il proxy per l'URL (se fornito)
+        proxy = get_preferred_proxy_for_url(url, "sportsonline", self.proxies)
+        if not proxy and not url:
+            proxy = self._get_random_proxy()
+
+        if (
+            self.session is None
+            or self.session.closed
+            or self._session_proxy != proxy
+        ):
+            if self.session and not self.session.closed:
+                await self.session.close()
+
             timeout = ClientTimeout(total=60, connect=30, sock_read=30)
-            
-            # Determina il proxy per l'URL (se fornito)
-            proxy = None
-            if url:
-                proxy = get_proxy_for_url(url, TRANSPORT_ROUTES, self.proxies)
-            else:
-                proxy = self._get_random_proxy()
-                
+
             if proxy:
                 logger.debug(f"Using proxy {proxy} for Sportsonline session.")
                 connector = get_connector_for_proxy(proxy)
@@ -174,6 +180,7 @@ class SportsonlineExtractor:
                 headers={"User-Agent": self.base_headers["User-Agent"]},
                 cookie_jar=aiohttp.CookieJar(),
             )
+            self._session_proxy = proxy
         return self.session
 
     async def _make_robust_request(

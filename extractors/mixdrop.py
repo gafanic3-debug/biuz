@@ -8,9 +8,8 @@ import cloudscraper
 from bs4 import BeautifulSoup
 
 from config import (
-    get_proxy_for_url,
-    TRANSPORT_ROUTES,
     GLOBAL_PROXIES,
+    get_preferred_proxy_for_url,
 )
 from utils.cookie_cache import CookieCache
 
@@ -75,7 +74,7 @@ class MixdropExtractor:
                 return result
 
         logger.info(f"🔍 [Cache Miss] Extracting new link for: {normalized_url}")
-        proxy = get_proxy_for_url(normalized_url, TRANSPORT_ROUTES, self.proxies, self.bypass_warp_active)
+        proxy = get_preferred_proxy_for_url(normalized_url, "mixdrop", self.proxies, self.bypass_warp_active)
         try:
             ua, cookies = self.base_headers.get("User-Agent"), {}
             if "/f/" in url: url = url.replace("/f/", "/e/")
@@ -99,7 +98,7 @@ class MixdropExtractor:
                 if depth > 3: return None
                 try:
                     m_headers = self._step_headers(ua, current_url)
-                    pref_p = get_proxy_for_url(current_url, TRANSPORT_ROUTES, self.proxies, self.bypass_warp_active)
+                    pref_p = get_preferred_proxy_for_url(current_url, "mixdrop", self.proxies, self.bypass_warp_active)
                     cs_proxies = _build_cs_proxies(pref_p)
                     
                     async def fetch_page():

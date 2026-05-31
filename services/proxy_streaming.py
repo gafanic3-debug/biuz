@@ -1,0 +1,1237 @@
+from services.proxy_shared import *
+
+class HLSProxyStreamingMixin:
+
+    async def handle_ts_segment(self, request):
+        """Gestisce richieste per segmenti .ts"""
+        try:
+            segment_name = request.match_info.get("segment")
+            base_url = request.query.get("base_url")
+
+            if not base_url:
+                return web.Response(text="Missing base URL for segment", status=400)
+
+            # aiohttp already decodes query parameters once.
+            # Avoid unquoting again or embedded encoded URLs may break.
+
+            if base_url.endswith("/"):
+                segment_url = f"{base_url}{segment_name}"
+            else:
+                # ✅ CORREZIONE: Se base_url è un URL completo (es. generato dal converter), usalo direttamente.
+                if any(
+                    ext in base_url
+                    for ext in [".mp4", ".m4s", ".ts", ".m4i", ".m4a", ".m4v"]
+                ):
+                    segment_url = base_url
+                else:
+                    segment_url = f"{base_url.rsplit('/', 1)[0]}/{segment_name}"
+
+            logger.info(f"📦 Proxy Segment: {segment_name}")
+
+            # Gestisce la risposta del proxy per il segmento
+            return await self._proxy_segment(
+                request,
+                segment_url,
+                {
+                    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                    "referer": base_url,
+                },
+                segment_name,
+            )
+
+        except Exception as e:
+            logger.error(f"Error in .ts segment proxy: {str(e)}")
+            return web.Response(text=f"Segment error: {str(e)}", status=500)
+
+    async def _proxy_segment(self, request, segment_url, stream_headers, segment_name):
+        """✅ NUOVO: Proxy dedicato per segmenti .ts con Content-Disposition"""
+        try:
+            # Ping browser-based extractors to keep shared browser alive
+            ext = get_browser_activity_extractor(self.extractors)
+            if ext and hasattr(ext, "_update_shared_activity"):
+                ext._update_shared_activity()
+
+            headers = dict(stream_headers)
+            is_special_cdn = is_special_cdn_stream(segment_url)
+
+            def set_response_header(target: dict, name: str, value: str):
+                keys_to_remove = [k for k in target.keys() if k.lower() == name.lower()]
+                for key in keys_to_remove:
+                    del target[key]
+                target[name] = value
+
+            # Passa attraverso alcuni headers del client
+            for header in ["range", "if-none-match", "if-modified-since"]:
+                if header in request.headers:
+                    headers[header] = request.headers[header]
+
+            if is_special_cdn:
+                headers["Accept-Encoding"] = "identity"
+
+            # ✅ Use pooled session with automatic retry failover
+            bypass_warp = request.query.get("warp", "").lower() == "off"
+            forced_proxy = request.query.get("proxy") or None
+
+            current_proxy = forced_proxy
+            attempts = 2 if forced_proxy else 1
+            resp = None
+            resp_ctx = None
+
+            for attempt in range(attempts):
+                try:
+                    session, _ = await self._get_proxy_session(
+                        segment_url, bypass_warp=bypass_warp, forced_proxy=current_proxy
+                    )
+                    disable_ssl = get_ssl_setting_for_url(segment_url, TRANSPORT_ROUTES)
+                    # ✅ Use yarl.URL with encoded=True to prevent double-encoding of commas
+                    final_segment_url = yarl.URL(segment_url, encoded=True)
+                    resp_ctx = session.get(final_segment_url, headers=headers, ssl=not disable_ssl)
+                    resp = await resp_ctx.__aenter__()
+                    break
+                except (ClientConnectionError, AioProxyError, PyProxyError, asyncio.TimeoutError, OSError) as e:
+                    if attempt == 0 and current_proxy:
+                        logger.warning("Segment proxy %s failed for %s: %r. Retrying with a different proxy.", current_proxy, segment_name, e)
+                        mark_proxy_dead(current_proxy)
+                        new_proxy = get_proxy_for_url(segment_url, TRANSPORT_ROUTES, GLOBAL_PROXIES, bypass_warp=bypass_warp)
+                        if new_proxy and new_proxy != current_proxy:
+                            current_proxy = new_proxy
+                            continue
+                    raise e
+
+            try:
+                response_headers = {}
+
+                for header in [
+                    "content-type",
+                    "content-range",
+                    "accept-ranges",
+                    "last-modified",
+                    "etag",
+                ]:
+                    if header in resp.headers:
+                        response_headers[header] = resp.headers[header]
+
+                # Forza il content-type e aggiunge Content-Disposition per .ts
+                set_response_header(response_headers, "Content-Type", "video/MP2T")
+                set_response_header(
+                    response_headers,
+                    "Content-Disposition",
+                    f'attachment; filename="{segment_name}"',
+                )
+                set_response_header(
+                    response_headers, "Access-Control-Allow-Origin", "*"
+                )
+                set_response_header(
+                    response_headers,
+                    "Access-Control-Allow-Methods",
+                    "GET, HEAD, OPTIONS",
+                )
+                set_response_header(
+                    response_headers,
+                    "Access-Control-Allow-Headers",
+                    "Range, Content-Type",
+                )
+
+                response = web.StreamResponse(status=resp.status, headers=response_headers)
+                await response.prepare(request)
+
+                first_chunk = True
+                try:
+                    async for chunk in resp.content.iter_any():
+                        if first_chunk:
+                            chunk = self._strip_fake_png_header_from_ts(chunk)
+                            first_chunk = False
+                        await response.write(chunk)
+                    await response.write_eof()
+                    return response
+                except (ClientPayloadError, ConnectionResetError, OSError) as e:
+                    logger.info(
+                        "Segment stream interrupted for %s [%s]: %s",
+                        segment_name,
+                        type(e).__name__,
+                        e,
+                    )
+                    return response
+                except Exception as e:
+                    if "Connection lost" not in str(e) and "closing transport" not in str(e):
+                        logger.error(f"Error streaming segment {segment_name}: {str(e)}")
+                    return response
+            finally:
+                if resp_ctx:
+                    await resp_ctx.__aexit__(None, None, None)
+
+        except Exception as e:
+            logger.error(f"Error in segment proxy: {str(e)}")
+            return web.Response(text=f"Segment error: {str(e)}", status=500)
+
+    async def _proxy_stream(self, request, stream_url, stream_headers, bypass_warp=None, forced_proxy=None, force_direct=None):
+        """Effettua il proxy dello stream con gestione manifest e AES-128"""
+        if bypass_warp is None:
+            bypass_warp = request.query.get("warp", "").lower() == "off"
+        if force_direct is None:
+            force_direct = self._should_force_direct_from_query(request)
+        else:
+            force_direct = force_direct or self._should_force_direct_from_query(request)
+
+        # Priorità: proxy passato esplicitamente -> proxy in query string.
+        # In forced-direct retry (WARP fallback), ignore proxy query params.
+        forced_proxy = None if force_direct else (forced_proxy or request.query.get("proxy") or None)
+        request._ps_forced_proxy = forced_proxy
+        session_proxy = None
+
+        async def retry_direct_after_warp(reason):
+            active_proxy = session_proxy or forced_proxy
+            if (
+                force_direct
+                or not WARP_PROXY_URL
+                or active_proxy != WARP_PROXY_URL
+                or getattr(request, "_warp_direct_retried", False)
+            ):
+                return None
+            request._warp_direct_retried = True
+            logger.warning("WARP failed for %s, retrying direct: %s", stream_url, reason)
+            return await self._proxy_stream(
+                request,
+                stream_url,
+                stream_headers,
+                bypass_warp=True,
+                forced_proxy=None,
+                force_direct=True,
+            )
+        try:
+            # Ping browser-based extractors to keep shared browser alive
+            ext = get_browser_activity_extractor(self.extractors)
+            if ext and hasattr(ext, "_update_shared_activity"):
+                ext._update_shared_activity()
+
+            headers = dict(stream_headers)
+
+            def set_response_header(target: dict, name: str, value: str):
+                keys_to_remove = [k for k in target.keys() if k.lower() == name.lower()]
+                for key in keys_to_remove:
+                    del target[key]
+                target[name] = value
+
+            # Passa attraverso alcuni headers del client, ma FILTRA quelli che potrebbero leakare l'IP
+            # Rimuoviamo specificamente i condizionali che possono causare 412/416 con URL dinamici
+            for header in ["range", "if-none-match", "if-modified-since"]:
+                if header in request.headers:
+                    headers[header] = request.headers[header]
+
+            # ✅ FIX: Esplicita rimozione di If-Match e If-Range che spesso causano 416 su CDNs dinamici
+            for h in ["if-match", "if-range"]:
+                if h in headers: del headers[h]
+                keys_to_remove = [k for k in headers.keys() if k.lower() == h]
+                for k in keys_to_remove: del headers[k]
+
+            # Manifest requests must be fetched in full. Some players probe the
+            # entry URL with a byte range, which turns upstream playlists into
+            # partial 206 responses and breaks rewriting.
+            if "manifest.m3u8" in request.path and "range" in headers:
+                del headers["range"]
+
+            # ✅ FIX: Remove 'zstd' from Accept-Encoding to prevent "Can not decode content-encoding" error
+            if "accept-encoding" in headers:
+                ae = headers["accept-encoding"].lower()
+                if "zstd" in ae:
+                    # Replace zstd with nothing, cleaning up commas
+                    new_ae = ae.replace("zstd", "").replace(", ,", ",").strip(", ")
+                    headers["accept-encoding"] = new_ae
+            elif "Accept-Encoding" in headers:
+                ae = headers["Accept-Encoding"].lower()
+                if "zstd" in ae:
+                    new_ae = ae.replace("zstd", "").replace(", ,", ",").strip(", ")
+                    headers["Accept-Encoding"] = new_ae
+
+            # Rimuovi esplicitamente headers che potrebbero rivelare l'IP originale
+            for h in ["x-forwarded-for", "x-real-ip", "forwarded", "via"]:
+                if h in headers:
+                    del headers[h]
+
+            # ✅ FIX: Normalizza gli header critici (User-Agent, Referer) in Title-Case
+            for key in list(headers.keys()):
+                if key.lower() == "user-agent":
+                    headers["User-Agent"] = headers.pop(key)
+                elif key.lower() == "referer":
+                    headers["Referer"] = headers.pop(key)
+                elif key.lower() == "origin":
+                    headers["Origin"] = headers.pop(key)
+                elif key.lower() == "authorization":
+                    headers["Authorization"] = headers.pop(key)
+                elif key.lower() == "cookie":
+                    headers["Cookie"] = headers.pop(key)
+
+            for internal_header in ["X-Direct-Connection", "x-direct-connection", "X-Force-Direct", "x-force-direct"]:
+                if internal_header in headers:
+                    del headers[internal_header]
+
+            # ✅ FIX: Rimuovi duplicati espliciti se presenti (es. user-agent e User-Agent)
+            # Questo può accadere se GenericHLSExtractor aggiunge 'user-agent' e noi abbiamo 'User-Agent' da h_ params
+            # La normalizzazione sopra dovrebbe averli unificati, ma per sicurezza puliamo.
+
+            # Log headers finali per debug
+            # logger.info(f"   Final Stream Headers: {headers}")
+
+            # ✅ NUOVO: Determina se disabilitare SSL per questo dominio
+            disable_ssl = (
+                request.query.get("h_X-EasyProxy-Disable-SSL") == "1"
+                or request.query.get("disable_ssl") == "1"
+                or headers.get("X-EasyProxy-Disable-SSL") == "1"
+                or get_ssl_setting_for_url(stream_url, TRANSPORT_ROUTES)
+            )
+            headers.pop("X-EasyProxy-Disable-SSL", None)
+            headers.pop("x-easyproxy-disable-ssl", None)
+            is_special_cdn = is_special_cdn_stream(stream_url)
+
+            if is_special_cdn:
+                headers["Accept-Encoding"] = "identity"
+
+            def _cookie_summary(value: str | None) -> str:
+                if not value:
+                    return "0"
+                return str(len([part for part in value.split(";") if part.strip()]))
+
+            def _short_url(value: str, limit: int = 120) -> str:
+                if len(value) <= limit:
+                    return value
+                return value[:limit] + "..."
+
+            # ✅ Use pooled session for better performance
+            if force_direct:
+                session = await self._get_session(url=stream_url)
+                session_proxy = None
+                logger.info(
+                    f"[Proxy Stream] Using direct session (forced) for: {stream_url}"
+                )
+            else:
+                session, session_proxy = await self._get_proxy_session(
+                    stream_url,
+                    bypass_warp=bypass_warp,
+                    forced_proxy=forced_proxy,
+                )
+
+                # ✅ FIX LOG: Determine correct routing for display
+                if session_proxy:
+                    routing = f"WARP (Cloudflare IP)" if (WARP_PROXY_URL and session_proxy == WARP_PROXY_URL) else f"PROXY ({session_proxy})"
+                else:
+                    routing = "BYPASS (Real IP)"
+
+                session_kind = "proxy" if session_proxy else "direct"
+                logger.info(
+                    f"📡 [Proxy Stream] {routing} - Using session ({session_kind}) for: {stream_url}"
+                )
+
+            use_curl_cffi = should_use_curl_cffi(
+                stream_url,
+                is_special_cdn,
+                HAS_CURL_CFFI,
+            )
+
+            if use_curl_cffi:
+                logger.info(f"🚀 [curl_cffi] Using browser impersonation for: {stream_url}")
+                try:
+                    # Use a pooled curl session if available
+                    session_key = f"curl_{session_proxy or 'direct'}"
+                    if session_key not in self.curl_sessions or self.curl_sessions[session_key] is None:
+                        self.curl_sessions[session_key] = CurlAsyncSession(impersonate="chrome124")
+
+                    curl_s = self.curl_sessions[session_key]
+                    curl_headers = prepare_curl_headers(stream_url, headers)
+
+
+                    curl_proxies = None
+                    # ✅ DEBUG: Log final headers for comparison
+                    logger.debug(f"🚀 [curl_cffi] Sending headers for {stream_url[:50]}: {curl_headers}")
+
+                    curl_proxies = None
+                    if session_proxy:
+                        curl_proxies = {"http": session_proxy, "https": session_proxy}
+
+                    # ✅ CRITICAL FIX: Ensure commas are NOT encoded.
+                    final_curl_url = final_curl_request_url(stream_url)
+
+                    # se curl_cffi diretto dovesse dare ancora 403.
+                    curl_resp = await curl_s.get(
+                        final_curl_url,
+                        headers=curl_headers,
+                        proxies=curl_proxies,
+                        verify=not disable_ssl,
+                        timeout=30,
+                        stream=True,
+                        allow_redirects=True
+                    )
+                    class MockContent:
+                        def __init__(self, c_resp): self.c_resp = c_resp
+                        async def iter_any(self):
+                            async for chunk in self.c_resp.aiter_content():
+                                yield chunk
+                        async def read(self): return await self.c_resp.acontent()
+
+                    class MockResp:
+                        def __init__(self, c_resp):
+                            self.status = c_resp.status_code
+                            self.headers = c_resp.headers
+                            self.url = yarl.URL(c_resp.url)
+                            self.content = MockContent(c_resp)
+                        async def read(self): return await self.content.read()
+                        async def text(self, errors='replace'):
+                            content = await self.read()
+                            return content.decode('utf-8', errors=errors)
+                        async def close(self): pass # Session is pooled
+                        async def __aenter__(self): return self
+                        async def __aexit__(self, exc_type, exc_val, exc_tb): pass
+
+                    if curl_resp.status_code in [502, 503, 504]:
+                        logger.warning(f"⚠️ [curl_cffi] {curl_resp.status_code} error for {final_curl_url[:50]}, falling back to standard aiohttp...")
+                        goto_manifest_processing = False
+                    else:
+                        resp_ctx = MockResp(curl_resp)
+                        goto_manifest_processing = True
+                except Exception as e:
+                    logger.error(f"❌ [curl_cffi] Error: {e}")
+                    goto_manifest_processing = False
+            else:
+                goto_manifest_processing = False
+
+            if not goto_manifest_processing:
+                if is_special_cdn:
+                    request_target = urllib.parse.unquote(stream_url)
+                else:
+                    request_target = yarl.URL(stream_url, encoded=True)
+                resp_ctx = session.get(request_target, headers=headers, ssl=not disable_ssl)
+
+            async def retry_hls_segment_with_fresh_token():
+                if not request.path.startswith("/proxy/hls/segment."):
+                    return None
+                refreshed_url = self._refresh_segment_token(stream_url)
+                if not refreshed_url or refreshed_url == stream_url:
+                    refreshed = await self._refresh_captured_hls_for_segment(
+                        stream_url,
+                        bypass_warp=bypass_warp,
+                        forced_proxy=forced_proxy,
+                    )
+                    if not refreshed:
+                        return None
+                    refreshed_url = self._refresh_segment_token(stream_url)
+                    if not refreshed_url or refreshed_url == stream_url:
+                        return None
+
+                if force_direct:
+                    retry_session = await self._get_session(url=refreshed_url)
+                    retry_proxy = None
+                else:
+                    retry_session, retry_proxy = await self._get_proxy_session(
+                        refreshed_url,
+                        bypass_warp=bypass_warp,
+                        forced_proxy=forced_proxy,
+                    )
+
+                retry_disable_ssl = (
+                    request.query.get("h_X-EasyProxy-Disable-SSL") == "1"
+                    or request.query.get("disable_ssl") == "1"
+                    or get_ssl_setting_for_url(refreshed_url, TRANSPORT_ROUTES)
+                )
+
+                try:
+                    async with retry_session.get(
+                        yarl.URL(refreshed_url, encoded=True),
+                        headers=headers,
+                        ssl=not retry_disable_ssl,
+                    ) as retry_resp:
+                        if retry_resp.status not in [200, 206]:
+                            retry_routing = (
+                                f"WARP ({retry_proxy})"
+                                if retry_proxy and WARP_PROXY_URL and retry_proxy == WARP_PROXY_URL
+                                else ("BYPASS" if retry_proxy is None else f"PROXY ({retry_proxy})")
+                            )
+                            logger.warning(
+                                "HLS segment token retry failed %s for %s [Routing: %s]",
+                                retry_resp.status,
+                                refreshed_url,
+                                retry_routing,
+                            )
+                            return None
+
+                        retry_content = await retry_resp.read()
+                        segment_was_stripped = False
+                        if request.path.endswith(".ts") or refreshed_url.endswith(".ts"):
+                            original_len = len(retry_content)
+                            retry_content = self._strip_fake_png_header_from_ts(retry_content)
+                            segment_was_stripped = len(retry_content) != original_len
+
+                        retry_headers = {}
+                        for header in [
+                            "content-type",
+                            "content-length",
+                            "content-range",
+                            "accept-ranges",
+                            "last-modified",
+                            "etag",
+                        ]:
+                            if header in retry_resp.headers:
+                                retry_headers[header] = retry_resp.headers[header]
+
+                        if (
+                            refreshed_url.endswith(".ts") or request.path.endswith(".ts")
+                        ) and "video/mp2t" not in retry_headers.get(
+                            "content-type", ""
+                        ).lower():
+                            set_response_header(retry_headers, "Content-Type", "video/MP2T")
+                        if segment_was_stripped:
+                            retry_headers.pop("content-range", None)
+                            retry_headers.pop("Content-Range", None)
+                            retry_headers.pop("accept-ranges", None)
+                            retry_headers.pop("Accept-Ranges", None)
+
+                        set_response_header(retry_headers, "Access-Control-Allow-Origin", "*")
+                        set_response_header(retry_headers, "Content-Length", str(len(retry_content)))
+                        logger.info("HLS segment recovered with refreshed token: %s", refreshed_url)
+                        return web.Response(
+                            body=retry_content,
+                            status=retry_resp.status,
+                            headers=retry_headers,
+                        )
+                except Exception as exc:
+                    logger.debug("HLS segment token retry failed for %s: %s", refreshed_url, exc)
+                    return None
+
+            async with resp_ctx as resp:
+                content_type = resp.headers.get("content-type", "").lower()
+
+                if resp.status not in [200, 206]:
+                    if resp.status == 403:
+                        retry_response = await retry_hls_segment_with_fresh_token()
+                        if retry_response:
+                            return retry_response
+                    warp_retry_response = await retry_direct_after_warp(f"upstream status {resp.status}")
+                    if warp_retry_response:
+                        return warp_retry_response
+                    if is_special_cdn and resp.status == 403 and not goto_manifest_processing:
+                        retry_result = await self._retry_special_cdn_request(
+                            request_target,
+                            headers,
+                            disable_ssl,
+                        )
+                        if retry_result:
+                            retry_headers = dict(retry_result["headers"])
+                            retry_headers["Access-Control-Allow-Origin"] = "*"
+                            logger.info(
+                                "✅ Provider CDN retry success via alternate route: %s",
+                                retry_result["proxy"],
+                            )
+                            return web.Response(
+                                body=retry_result["body"],
+                                status=retry_result["status"],
+                                headers=retry_headers,
+                            )
+                    if resp.status == 403 and request.path.endswith("manifest.m3u8"):
+                        try:
+                            rewritten_manifest = await recover_forbidden_manifest(
+                                self,
+                                request,
+                                stream_url,
+                                headers,
+                                bypass_warp,
+                                forced_proxy,
+                            )
+                            if rewritten_manifest:
+                                logger.info("Manifest recovered via provider hook after upstream 403")
+                                return web.Response(
+                                    text=rewritten_manifest,
+                                    headers={
+                                        "Content-Type": "application/vnd.apple.mpegurl",
+                                        "Access-Control-Allow-Origin": "*",
+                                        "Cache-Control": "no-cache",
+                                    },
+                                )
+                        except Exception as exc:
+                            logger.debug("Manifest 403 recovery hook failed for %s: %s", stream_url, exc)
+                    error_body = await resp.read()
+                    routing = (
+                        f"WARP ({session_proxy})"
+                        if session_proxy and WARP_PROXY_URL and session_proxy == WARP_PROXY_URL
+                        else ("BYPASS" if session_proxy is None else f"PROXY ({session_proxy})")
+                    )
+                    logger.warning(f"⚠️ Upstream returned error {resp.status} for {stream_url} [Routing: {routing}]")
+                    return web.Response(body=error_body, status=resp.status, headers={"Content-Type": content_type, "Access-Control-Allow-Origin": "*"})
+
+                is_direct_media_stream = request.path == "/proxy/stream" and (
+                    "video/" in content_type or stream_url.lower().endswith((".mp4", ".mkv", ".avi", ".mov"))
+                )
+
+                if is_direct_media_stream:
+                    response_headers = {
+                        "Content-Type": content_type,
+                        "Access-Control-Allow-Origin": "*",
+                        "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+                        "Access-Control-Allow-Headers": "Range, Content-Type",
+                    }
+                    for h in ["content-length", "content-range", "accept-ranges"]:
+                        if h in resp.headers: response_headers[h] = resp.headers[h]
+
+                    response = web.StreamResponse(status=resp.status, headers=response_headers)
+                    await response.prepare(request)
+                    try:
+                        async for chunk in resp.content.iter_any():
+                            await response.write(chunk)
+                        await response.write_eof()
+                        return response
+                    except (ClientPayloadError, ConnectionResetError, OSError) as e:
+                        logger.info(
+                            "Stream relay interrupted for %s [%s]: %s",
+                            stream_url,
+                            type(e).__name__,
+                            e,
+                        )
+                        return response
+                    except Exception as e:
+                        if "Connection lost" not in str(e) and "closing transport" not in str(e):
+                            logger.error(
+                                "❌ Stream error [%s]: %r",
+                                type(e).__name__,
+                                e,
+                            )
+                        return response
+
+                content_bytes = await resp.read()
+                manifest_content = None
+                try:
+                    decoded_text = content_bytes.decode("utf-8", errors='replace')
+                    if decoded_text.lstrip().startswith("#EXTM3U"):
+                        manifest_content = decoded_text
+                except: pass
+
+                if manifest_content is None and (".m3u8" in stream_url or "mpegurl" in content_type):
+                    try:
+                        decoded_text = content_bytes.decode("utf-8", errors='replace')
+                        if decoded_text.lstrip().startswith("#EXTM3U"):
+                            manifest_content = decoded_text
+                        else:
+                            logger.warning(
+                                "Upstream did not return a valid HLS manifest for %s: %s",
+                                stream_url,
+                                decoded_text[:120].replace("\n", "\\n"),
+                            )
+                            return web.Response(
+                                text="Upstream did not return a valid HLS manifest",
+                                status=502,
+                                headers={
+                                    "Content-Type": "text/plain; charset=utf-8",
+                                    "Access-Control-Allow-Origin": "*",
+                                },
+                            )
+                    except Exception:
+                        pass
+
+                if manifest_content:
+                    logger.info(f"📄 HLS manifest detected: {stream_url}")
+                    scheme = request.headers.get("X-Forwarded-Proto", request.scheme)
+                    host = request.headers.get("X-Forwarded-Host", request.host)
+                    proxy_base = f"{scheme}://{host}"
+                    original_url = request.query.get("url") or request.query.get("d", "")
+                    use_short_hls_urls = should_use_short_manifest_urls(
+                        original_url,
+                        request.query.get("host", ""),
+                        str(resp.url),
+                    )
+
+                    disable_ssl = request.query.get("disable_ssl") == "1" or get_ssl_setting_for_url(str(resp.url), TRANSPORT_ROUTES)
+                    rewritten = await ManifestRewriter.rewrite_manifest_urls(
+                        manifest_content=manifest_content,
+                        base_url=str(resp.url),
+                        proxy_base=proxy_base,
+                        stream_headers=headers,
+                        original_channel_url=original_url,
+                        api_password=request.query.get("api_password"),
+                        get_extractor_func=self.get_extractor,
+                        no_bypass=request.query.get("no_bypass") == "1",
+                        shorten_url_func=self.shorten_hls_url if use_short_hls_urls else None,
+                        bypass_warp=bypass_warp,
+                        disable_ssl=disable_ssl,
+                        selected_proxy=forced_proxy, # ✅ PASSA IL PROXY FORZATO
+                        force_direct=force_direct,
+                    )
+                    return web.Response(text=rewritten, headers={
+                        "Content-Type": "application/vnd.apple.mpegurl",
+                        "Access-Control-Allow-Origin": "*",
+                        "Cache-Control": "no-cache",
+                    })
+
+                # ✅ AGGIORNATO: Gestione per manifest MPD (DASH) - separate block
+                if manifest_content is None and ("dash+xml" in content_type or stream_url.endswith(".mpd")):
+                    manifest_content = content_bytes.decode("utf-8", errors='replace')
+
+                    # ✅ CORREZIONE: Rileva lo schema e l'host corretti quando dietro un reverse proxy
+                    scheme = request.headers.get("X-Forwarded-Proto", request.scheme)
+                    host = request.headers.get("X-Forwarded-Host", request.host)
+                    proxy_base = f"{scheme}://{host}"
+
+                    # Recupera parametri
+                    clearkey_param = request.query.get("clearkey")
+
+                    # ✅ FIX: Supporto per key_id e key separati (stile MediaFlowProxy)
+                    if not clearkey_param:
+                        key_id_param = request.query.get("key_id")
+                        key_val_param = request.query.get("key")
+
+                        if key_id_param and key_val_param:
+                            # Check for multiple keys
+                            key_ids = key_id_param.split(",")
+                            key_vals = key_val_param.split(",")
+
+                            if len(key_ids) == len(key_vals):
+                                clearkey_parts = []
+                                for kid, kval in zip(key_ids, key_vals):
+                                    clearkey_parts.append(
+                                        f"{kid.strip()}:{kval.strip()}"
+                                    )
+                                clearkey_param = ",".join(clearkey_parts)
+                            else:
+                                if len(key_ids) == 1 and len(key_vals) == 1:
+                                    clearkey_param = f"{key_id_param}:{key_val_param}"
+                                else:
+                                    # Try to pair as many as possible
+                                    min_len = min(len(key_ids), len(key_vals))
+                                    clearkey_parts = []
+                                    for i in range(min_len):
+                                        clearkey_parts.append(
+                                            f"{key_ids[i].strip()}:{key_vals[i].strip()}"
+                                        )
+                                    clearkey_param = ",".join(clearkey_parts)
+
+                    # --- LEGACY MODE: MPD -> HLS Conversion ---
+                    if MPD_MODE in ("legacy", "none", "disabled") and MPDToHLSConverter:
+                        logger.info(
+                            f"🔄 [Legacy Mode] Converting MPD to HLS for {stream_url}"
+                        )
+                        try:
+                            converter = MPDToHLSConverter()
+
+                            # Check if requesting a Media Playlist (Variant)
+                            rep_id = request.query.get("rep_id")
+
+                            if rep_id:
+                                # Generate Media Playlist (Segments)
+                                hls_playlist = converter.convert_media_playlist(
+                                    manifest_content,
+                                    rep_id,
+                                    proxy_base,
+                                    stream_url,
+                                    request.query_string,
+                                    clearkey_param,
+                                )
+                                # Log first few lines for debugging
+                                logger.debug(
+                                    f"📜 Generated Media Playlist for {rep_id} (first 10 lines):\n{chr(10).join(hls_playlist.splitlines()[:10])}"
+                                )
+                            else:
+                                # Generate Master Playlist
+                                hls_playlist = converter.convert_master_playlist(
+                                    manifest_content,
+                                    proxy_base,
+                                    stream_url,
+                                    request.query_string,
+                                )
+                                logger.debug(
+                                    f"📜 Generated Master Playlist (first 5 lines):\n{chr(10).join(hls_playlist.splitlines()[:5])}"
+                                )
+
+                            return web.Response(
+                                text=hls_playlist,
+                                headers={
+                                    "Content-Type": "application/vnd.apple.mpegurl",
+                                    "Access-Control-Allow-Origin": "*",
+                                    "Cache-Control": "no-cache",
+                                },
+                            )
+                        except Exception as e:
+                            logger.error(f"❌ Legacy conversion failed: {e}")
+                            # Fallback to DASH proxy if conversion fails
+                            pass
+
+                    # --- DEFAULT: DASH Proxy (Rewriting) ---
+                    req_format = request.query.get("format")
+                    rep_id = request.query.get("rep_id")
+
+                    api_password = request.query.get("api_password")
+                    rewritten_manifest = ManifestRewriter.rewrite_mpd_manifest(
+                        manifest_content,
+                        stream_url,
+                        proxy_base,
+                        headers,
+                        clearkey_param,
+                        api_password,
+                        bypass_warp=bypass_warp,
+                    )
+
+                    return web.Response(
+                        text=rewritten_manifest,
+                        headers={
+                            "Content-Type": "application/dash+xml",
+                            "Content-Disposition": 'attachment; filename="stream.mpd"',
+                            "Access-Control-Allow-Origin": "*",
+                            "Cache-Control": "no-cache",
+                        },
+                    )
+
+                # Streaming normale per altri tipi di contenuto (segmenti binari)
+                # Il body è già stato letto in content_bytes, usiamo quello.
+                segment_was_stripped = False
+                if request.path.endswith(".ts") or stream_url.endswith(".ts"):
+                    original_len = len(content_bytes)
+                    content_bytes = self._strip_fake_png_header_from_ts(content_bytes)
+                    segment_was_stripped = len(content_bytes) != original_len
+
+                response_headers = {}
+
+                for header in [
+                    "content-type",
+                    "content-length",
+                    "content-range",
+                    "accept-ranges",
+                    "last-modified",
+                    "etag",
+                ]:
+                    if header in resp.headers:
+                        response_headers[header] = resp.headers[header]
+
+                # ✅ FIX: Forza Content-Type coerente se il server non lo invia correttamente
+                if (
+                    stream_url.endswith(".ts") or request.path.endswith(".ts")
+                ) and "video/mp2t" not in response_headers.get(
+                    "content-type", ""
+                ).lower():
+                    set_response_header(response_headers, "Content-Type", "video/MP2T")
+                elif (
+                    stream_url.endswith(".vtt")
+                    or stream_url.endswith(".webvtt")
+                    or request.path.endswith(".vtt")
+                ) and "text/vtt" not in response_headers.get(
+                    "content-type", ""
+                ).lower():
+                    set_response_header(response_headers, "Content-Type", "text/vtt; charset=utf-8")
+                if segment_was_stripped:
+                    set_response_header(
+                        response_headers, "Content-Length", str(len(content_bytes))
+                    )
+                    response_headers.pop("content-range", None)
+                    response_headers.pop("Content-Range", None)
+                    response_headers.pop("accept-ranges", None)
+                    response_headers.pop("Accept-Ranges", None)
+
+                set_response_header(
+                    response_headers, "Access-Control-Allow-Origin", "*"
+                )
+                set_response_header(
+                    response_headers,
+                    "Access-Control-Allow-Methods",
+                    "GET, HEAD, OPTIONS",
+                )
+                set_response_header(
+                    response_headers,
+                    "Access-Control-Allow-Headers",
+                    "Range, Content-Type",
+                )
+
+                # Override content-length with actual bytes read, evitando duplicati case-insensitive
+                set_response_header(
+                    response_headers, "Content-Length", str(len(content_bytes))
+                )
+
+                return web.Response(
+                    body=content_bytes,
+                    status=resp.status,
+                    headers=response_headers,
+                )
+
+
+        except (ClientPayloadError, ConnectionResetError, OSError) as e:
+            # Errori tipici di disconnessione del client
+            warp_retry_response = await retry_direct_after_warp(e)
+            if warp_retry_response:
+                return warp_retry_response
+            logger.info(f"ℹ️ Client disconnected from stream: {stream_url} ({str(e)})")
+            return web.Response(text="Client disconnected", status=499)
+
+        except (
+            ServerDisconnectedError,
+            ClientConnectionError,
+            asyncio.TimeoutError,
+        ) as e:
+            # Errori di connessione upstream
+            warp_retry_response = await retry_direct_after_warp(e)
+            if warp_retry_response:
+                return warp_retry_response
+            logger.warning(f"⚠️ Connection lost with source: {stream_url} ({str(e)})")
+            return web.Response(text=f"Upstream connection lost: {str(e)}", status=502)
+
+        except Exception as e:
+            err_msg = str(e)
+            if "Connection lost" in err_msg or "Connection reset" in err_msg:
+                warp_retry_response = await retry_direct_after_warp(e)
+                if warp_retry_response:
+                    return warp_retry_response
+                logger.info(f"ℹ️ Stream connection closed by client or server: {stream_url}")
+                return web.Response(text="Connection lost", status=499)
+
+            warp_retry_response = await retry_direct_after_warp(e)
+            if warp_retry_response:
+                return warp_retry_response
+
+            # If forced_proxy was set and failed with a proxy/connection error, re-extract
+            forced_proxy = getattr(request, '_ps_forced_proxy', None)
+            if forced_proxy and not getattr(request, '_ps_retried', False):
+                err_lower = err_msg.lower()
+                is_proxy_err = any(x in err_lower for x in ("invalid reply", "request rejected", "connection refused", "connection reset", "proxy connection timed out", "can't connect to server", "couldn't connect", "connect call failed", "0x9", "0x7", "socks5"))
+                if is_proxy_err:
+                    request._ps_retried = True
+                    logger.warning("Proxy %s failed for %s, marking dead and triggering re-extraction", forced_proxy, stream_url)
+                    mark_proxy_dead(forced_proxy)
+                    raise Exception("PROXY_DEAD_RETRY_EXTRACTION")
+
+            logger.error(
+                "❌ Generic error in stream proxy [%s]: %r",
+                type(e).__name__,
+                e,
+            )
+            return web.Response(text=f"Stream error: {err_msg}", status=500)
+
+    def _prefetch_next_segments(
+        self, current_url, init_url, key, key_id, headers, bypass_warp: bool = False
+    ):
+        """Identifica i prossimi segmenti e avvia il download in background."""
+        try:
+            parsed = urllib.parse.urlparse(current_url)
+            path = parsed.path
+
+            # Cerca pattern numerico alla fine del path (es. segment-1.m4s)
+            match = re.search(r"([-_])(\d+)(\.[^.]+)$", path)
+            if not match:
+                return
+
+            separator, current_number, extension = match.groups()
+            current_num = int(current_number)
+
+            # Prefetch next 3 segments
+            for i in range(1, 4):
+                next_num = current_num + i
+
+                # Replace number in path
+                pattern = f"{separator}{current_number}{re.escape(extension)}$"
+                replacement = f"{separator}{next_num}{extension}"
+                new_path = re.sub(pattern, replacement, path)
+
+                # Reconstruct URL
+                next_url = urllib.parse.urlunparse(parsed._replace(path=new_path))
+
+                cache_key = f"{next_url}:{key_id}"
+
+                if (
+                    cache_key not in self.segment_cache
+                    and cache_key not in self.prefetch_tasks
+                ):
+                    self.prefetch_tasks.add(cache_key)
+                    asyncio.create_task(
+                        self._fetch_and_cache_segment(
+                            next_url,
+                            init_url,
+                            key,
+                            key_id,
+                            headers,
+                            cache_key,
+                            bypass_warp=bypass_warp,
+                        )
+                    )
+
+        except Exception as e:
+            logger.warning(f"⚠️ Prefetch error: {e}")
+
+    async def _fetch_and_cache_segment(
+        self, url, init_url, key, key_id, headers, cache_key, bypass_warp: bool = False
+    ):
+        """Scarica, decripta e mette in cache un segmento in background."""
+        try:
+            if decrypt_segment is None:
+                return
+
+            # Ensure dynamic WARP bypass for prefetch
+            self._check_dynamic_warp_bypass(url)
+
+            session, _ = await self._get_proxy_session(url, bypass_warp=bypass_warp)
+
+            # Download Init (usa cache se possibile)
+            init_content = b""
+            if init_url:
+                if init_url in self.init_cache:
+                    init_content = self.init_cache[init_url]
+                else:
+                    disable_ssl = get_ssl_setting_for_url(init_url, TRANSPORT_ROUTES)
+                    try:
+                        async with session.get(
+                            init_url,
+                            headers=headers,
+                            ssl=not disable_ssl,
+                            timeout=aiohttp.ClientTimeout(total=10),
+                        ) as resp:
+                            if resp.status == 200:
+                                init_content = await resp.read()
+                                self.init_cache[init_url] = init_content
+                    except Exception:
+                        pass
+
+            # Download Segment
+            segment_content = None
+            disable_ssl = get_ssl_setting_for_url(url, TRANSPORT_ROUTES)
+            try:
+                async with session.get(
+                    url,
+                    headers=headers,
+                    ssl=not disable_ssl,
+                    timeout=aiohttp.ClientTimeout(total=15),
+                ) as resp:
+                    if resp.status == 200:
+                        segment_content = await resp.read()
+            except Exception:
+                pass
+
+            if segment_content:
+                # Decrypt
+                # Decrypt in thread pool to avoid blocking event loop
+                loop = asyncio.get_event_loop()
+                decrypted_content = await loop.run_in_executor(
+                    None, decrypt_segment, init_content, segment_content, key_id, key
+                )
+                import time
+
+                self.segment_cache[cache_key] = (decrypted_content, time.time())
+                logger.info(f"📦 Prefetched segment: {url.split('/')[-1]}")
+
+        except Exception as e:
+            pass
+        finally:
+            if cache_key in self.prefetch_tasks:
+                self.prefetch_tasks.remove(cache_key)
+
+    async def _remux_to_ts(self, content):
+        """Converte segmenti (fMP4) in MPEG-TS usando FFmpeg pipe."""
+        try:
+            cmd = [
+                "ffmpeg",
+                "-y",
+                "-i",
+                "pipe:0",
+                "-c",
+                "copy",
+                "-copyts",  # Preserve timestamps to prevent freezing/gap issues
+                "-f",
+                "mpegts",
+                "pipe:1",
+            ]
+
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+
+            stdout, stderr = await proc.communicate(input=content)
+
+            # Check for data presence regardless of return code (workaround for asyncio race condition on some platforms)
+            if len(stdout) > 0:
+                if proc.returncode != 0:
+                    logger.debug(
+                        f"FFmpeg remux finished with code {proc.returncode} but produced output (ignoring). Stderr: {stderr.decode()[:200]}"
+                    )
+                return stdout
+
+            if proc.returncode != 0:
+                logger.error(f"❌ FFmpeg remux failed: {stderr.decode()}")
+                return None
+
+            return stdout
+        except Exception as e:
+            logger.error(f"❌ Remux error: {e}")
+            return None
+
+    async def handle_decrypt_segment(self, request):
+        """Decripta segmenti fMP4 lato server per ClearKey (legacy mode)."""
+        if not check_password(request):
+            return web.Response(status=401, text="Unauthorized: Invalid API Password")
+
+        url = request.query.get("url")
+        logger.info(f"🔓 Decrypt Request: {url.split('/')[-1] if url else 'unknown'}")
+
+        init_url = request.query.get("init_url")
+        key = request.query.get("key")
+        key_id = request.query.get("key_id")
+
+        if not url or not key or not key_id:
+            return web.Response(text="Missing url, key, or key_id", status=400)
+
+        if decrypt_segment is None:
+            return web.Response(
+                text="Decrypt not available (MPD_MODE is ffmpeg or disabled)", status=503
+            )
+
+        # Check cache first
+        import time
+
+        cache_key = f"{url}:{key_id}:ts"  # Use distinct cache key for TS
+        if cache_key in self.segment_cache:
+            cached_content, cached_time = self.segment_cache[cache_key]
+            if time.time() - cached_time < self.segment_cache_ttl:
+                logger.info(f"📦 Cache HIT for segment: {url.split('/')[-1]}")
+                return web.Response(
+                    body=cached_content,
+                    status=200,
+                    headers={
+                        "Content-Type": "video/MP2T",
+                        "Access-Control-Allow-Origin": "*",
+                        "Cache-Control": "no-cache",
+                        "Connection": "keep-alive",
+                    },
+                )
+            else:
+                del self.segment_cache[cache_key]
+
+        try:
+            # Ricostruisce gli headers per le richieste upstream
+            headers = {"Connection": "keep-alive", "Accept-Encoding": "identity"}
+            for param_name, param_value in request.query.items():
+                if param_name.startswith("h_"):
+                    header_name = param_name[2:].replace("_", "-")
+                    headers[header_name] = param_value
+
+            # Get proxy-enabled session for segment fetches
+            bypass_warp = request.query.get("warp", "").lower() == "off"
+            segment_session, segment_proxy = await self._get_proxy_session(
+                url, bypass_warp=bypass_warp
+            )
+            if segment_proxy:
+                logger.info(f"📡 [Decrypt] Using session via proxy: {segment_proxy}")
+
+            try:
+                # Parallel download of init and media segment
+                async def fetch_init():
+                    if not init_url:
+                        return b""
+                    if init_url in self.init_cache:
+                        return self.init_cache[init_url]
+                    disable_ssl = get_ssl_setting_for_url(init_url, TRANSPORT_ROUTES)
+                    try:
+                        async with segment_session.get(
+                            init_url,
+                            headers=headers,
+                            ssl=not disable_ssl,
+                            timeout=aiohttp.ClientTimeout(total=10),
+                        ) as resp:
+                            if resp.status == 200:
+                                content = await resp.read()
+                                self.init_cache[init_url] = content
+                                return content
+                            logger.error(
+                                f"❌ Init segment returned status {resp.status}: {init_url}"
+                            )
+                            return None
+                    except Exception as e:
+                        logger.error(f"❌ Failed to fetch init segment: {e}")
+                        return None
+
+                async def fetch_segment():
+                    disable_ssl = get_ssl_setting_for_url(url, TRANSPORT_ROUTES)
+                    try:
+                        async with segment_session.get(
+                            url,
+                            headers=headers,
+                            ssl=not disable_ssl,
+                            timeout=aiohttp.ClientTimeout(total=15),
+                        ) as resp:
+                            if resp.status == 200:
+                                return await resp.read()
+                            logger.error(
+                                f"❌ Segment returned status {resp.status}: {url}"
+                            )
+                            return None
+                    except Exception as e:
+                        logger.error(f"❌ Failed to fetch segment: {e}")
+                        return None
+
+                # Parallel fetch
+                init_content, segment_content = await asyncio.gather(
+                    fetch_init(), fetch_segment()
+                )
+            finally:
+                # Session is pooled/cached, so we don't close it
+                pass
+
+            if init_content is None and init_url:
+                logger.error(f"❌ Failed to fetch init segment")
+                return web.Response(status=502)
+            if segment_content is None:
+                logger.error(f"❌ Failed to fetch segment")
+                return web.Response(status=502)
+
+            init_content = init_content or b""
+
+            # Check if we should skip decryption (null key case)
+            skip_decrypt = request.query.get("skip_decrypt") == "1"
+
+            if skip_decrypt:
+                # Null key: just concatenate init + segment without decryption
+                logger.info(f"🔓 Skip decrypt mode - remuxing without decryption")
+                combined_content = init_content + segment_content
+            else:
+                # Decripta con PyCryptodome
+                # Decrypt in thread pool to avoid blocking event loop
+                loop = asyncio.get_event_loop()
+                combined_content = await loop.run_in_executor(
+                    None, decrypt_segment, init_content, segment_content, key_id, key
+                )
+
+            # Leggero REMUX to TS (if enabled)
+            if ENABLE_REMUXING:
+                ts_content = await self._remux_to_ts(combined_content)
+                if not ts_content:
+                    logger.warning("⚠️ Remux failed, serving raw fMP4")
+                    ts_content = combined_content
+                    content_type = "video/mp4"
+                else:
+                    content_type = "video/MP2T"
+                    logger.info("⚡ Remuxed fMP4 -> TS")
+            else:
+                logger.debug("⏩ Remuxing disabled, serving raw fMP4")
+                ts_content = combined_content
+                content_type = "video/mp4"
+
+            # Store in cache
+            self.segment_cache[cache_key] = (ts_content, time.time())
+
+            # Clean old cache entries (keep max 50)
+            if len(self.segment_cache) > 50:
+                oldest_keys = sorted(
+                    self.segment_cache.keys(), key=lambda k: self.segment_cache[k][1]
+                )[:20]
+                for k in oldest_keys:
+                    del self.segment_cache[k]
+
+            # Prefetch next segments in background
+            self._prefetch_next_segments(
+                url, init_url, key, key_id, headers, bypass_warp=bypass_warp
+            )
+
+            # Invia Risposta
+            return web.Response(
+                body=ts_content,
+                status=200,
+                headers={
+                    "Content-Type": content_type,
+                    "Access-Control-Allow-Origin": "*",
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                },
+            )
+
+        except Exception as e:
+            logger.error(f"❌ Decryption error: {e}")
+            return web.Response(status=500, text=f"Decryption failed: {str(e)}")

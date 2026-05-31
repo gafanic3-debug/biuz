@@ -71,7 +71,9 @@ ENV CHROME_BIN=/usr/bin/chromium
 ENV CHROME_DRIVER_PATH=/usr/bin/chromedriver
 
 # 3. FlareSolverr v3 (Python)
-RUN git clone https://github.com/FlareSolverr/FlareSolverr.git /app/flaresolverr \
+ARG FLARESOLVERR_REFRESH=1
+RUN echo "FS refresh: ${FLARESOLVERR_REFRESH}" \
+    && git clone https://github.com/FlareSolverr/FlareSolverr.git /app/flaresolverr \
     && cd /app/flaresolverr \
     && sed -i 's/driver_executable_path=driver_exe_path/driver_executable_path="\/usr\/bin\/chromedriver"/' src/utils.py \
     && sed -i "s|options.add_argument('--no-sandbox')|options.add_argument('--no-sandbox'); options.add_argument('--disable-dev-shm-usage'); options.add_argument('--disable-gpu'); options.add_argument('--headless=new')|" src/utils.py \

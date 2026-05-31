@@ -7,7 +7,7 @@ from aiohttp import web
 # Aggiungi path corrente per import moduli
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from services.hls_proxy import HLSProxy
+from services.proxy import HLSProxy
 from services.ffmpeg_manager import FFmpegManager
 from config import PORT, DVR_ENABLED, RECORDINGS_DIR, MAX_RECORDING_DURATION, RECORDINGS_RETENTION_DAYS
 
