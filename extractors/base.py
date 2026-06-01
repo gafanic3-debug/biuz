@@ -8,6 +8,7 @@ from python_socks import ProxyError as PyProxyError
 from config import (
     get_connector_for_proxy,
     SELECTED_PROXY_CONTEXT,
+    STRICT_PROXY_CONTEXT,
     GLOBAL_PROXIES,
     mark_proxy_dead,
     get_preferred_proxy_for_url,
@@ -118,7 +119,7 @@ class BaseExtractor:
                     await self.session.close()
                 self.session = None
                 
-                if is_proxy_err and SELECTED_PROXY_CONTEXT.get():
+                if is_proxy_err and SELECTED_PROXY_CONTEXT.get() and not STRICT_PROXY_CONTEXT.get():
                     proxy_to_mark = SELECTED_PROXY_CONTEXT.get()
                     if proxy_to_mark:
                         mark_proxy_dead(proxy_to_mark)

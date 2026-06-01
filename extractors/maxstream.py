@@ -9,6 +9,7 @@ from aiohttp import ClientSession, ClientTimeout, TCPConnector
 from aiohttp.resolver import DefaultResolver
 from config import FLARESOLVERR_TIMEOUT, FLARESOLVERR_URL, get_connector_for_proxy, get_solver_proxy_url, get_extractor_proxies, get_ordered_proxies_for_url, should_allow_direct_fallback
 from config import PROXY_TEST_TIMEOUT, PROXY_TEST_CONCURRENCY
+from utils.solver_manager import ensure_flaresolverr
 
 
 logger = logging.getLogger(__name__)
@@ -125,10 +126,13 @@ class MaxstreamExtractor:
         domain = parsed_url.netloc
         headers = kwargs.get("headers") or self.base_headers
         post_data = kwargs.get("data")
-        paths = [{"proxy": proxy, "use_ip": None} for proxy in self._get_proxies_for_url(url)]
-        paths.append({"proxy": None, "use_ip": None})
+        proxies = self._get_proxies_for_url(url)
+        allow_direct = should_allow_direct_fallback(proxies)
+        paths = [{"proxy": proxy, "use_ip": None} for proxy in proxies]
+        if allow_direct:
+            paths.append({"proxy": None, "use_ip": None})
 
-        if "maxstream" in domain:
+        if allow_direct and "maxstream" in domain:
             for ip in (await self._resolve_doh(domain))[:2]:
                 paths.append({"proxy": None, "use_ip": ip})
 
@@ -280,6 +284,7 @@ class MaxstreamExtractor:
                 for key, value in [item.split("=", 1)]
             ]
 
+        await ensure_flaresolverr()
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.post(

@@ -30,27 +30,11 @@ IF NOT EXIST "flaresolverr\" (
     python -m pip install -r requirements.txt --quiet
     popd
 ) ELSE (
-    :: Ensure FlareSolverr is NOT headless on Windows to avoid blocks
-    pushd flaresolverr
-    python -c "import sys; p='src/utils.py'; c=open(p, 'r', encoding='utf-8').read(); n=c.replace('; options.add_argument(\'--disable-dev-shm-usage\'); options.add_argument(\'--disable-gpu\'); options.add_argument(\'--headless=new\')', '') if '--headless=new' in c else c; open(p, 'w', encoding='utf-8', newline='\n').write(n)"
-    popd
+    :: FlareSolverr already installed, starts lazily on demand
+    echo [OK] FlareSolverr installed, will start on demand
 )
 
-:: --- 4. Start FlareSolverr ---
-echo Starting solver in background...
-
-IF EXIST "flaresolverr\src\flaresolverr.py" (
-    powershell -NoProfile -Command ^
-        "$resp = $null; try { $resp = Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:%FLARESOLVERR_PORT%/' -TimeoutSec 3 } catch {}; " ^
-        "if ($resp -and $resp.Content -match 'FlareSolverr') { exit 0 } else { exit 1 }" >nul 2>&1
-    IF ERRORLEVEL 1 (
-        echo [OK] Starting FlareSolverr on port %FLARESOLVERR_PORT%...
-        set PORT=%FLARESOLVERR_PORT%
-        start "FlareSolverr" /MIN cmd /c "python flaresolverr\src\flaresolverr.py >nul 2>&1"
-    ) ELSE (
-        echo [OK] FlareSolverr already active on port %FLARESOLVERR_PORT%.
-    )
-)
+:: --- 4. FlareSolverr is LAZY (starts via Python code when first needed) ---
 
 :: --- 5. Start EasyProxy ---
 echo.

@@ -10,6 +10,7 @@ import aiohttp
 from config import FLARESOLVERR_URL, FLARESOLVERR_TIMEOUT, GLOBAL_PROXIES, get_solver_proxy_url, get_ordered_proxies_for_url, should_allow_direct_fallback
 from config import PROXY_TEST_TIMEOUT
 from curl_cffi.requests import AsyncSession
+from utils.solver_manager import ensure_flaresolverr
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,7 @@ class CinemaCityExtractor:
     async def _ensure_cookies(self):
         if self._cookies and self._user_agent:
             return
+        await ensure_flaresolverr()
         endpoint = f"{self.flaresolverr_url.rstrip('/')}/v1"
         proxies_to_try = get_ordered_proxies_for_url(self.base_url, "cinemacity", self.proxies)
         if should_allow_direct_fallback(proxies_to_try):

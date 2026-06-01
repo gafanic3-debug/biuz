@@ -2,7 +2,7 @@ import logging
 import re
 import urllib.parse
 
-from config import GLOBAL_PROXIES, TRANSPORT_ROUTES, get_proxy_for_url, get_extractor_proxies
+from config import GLOBAL_PROXIES, TRANSPORT_ROUTES, SELECTED_PROXY_CONTEXT, STRICT_PROXY_CONTEXT, get_proxy_for_url, get_extractor_proxies
 from extractors.generic import GenericHLSExtractor, ExtractorError
 from extractors.registry_imports import *
 
@@ -35,9 +35,15 @@ def _resolve_sportsonline_proxy(url: str, bypass_warp: bool = False) -> str | No
 
 
 def _build_proxy_list(primary_proxy: str | None = None, extractor_name: str | None = None) -> list[str]:
-    """Build ordered proxy list: extractor-specific first, then route/primary, then GLOBAL_PROXIES."""
+    """Build proxy list; explicit/extractor proxies are strict and exclude globals."""
     proxies = []
-    for proxy in get_extractor_proxies(extractor_name or "") + ([primary_proxy] if primary_proxy else []) + list(GLOBAL_PROXIES):
+    selected_proxy = SELECTED_PROXY_CONTEXT.get()
+    if selected_proxy and STRICT_PROXY_CONTEXT.get():
+        return [selected_proxy]
+    extractor_proxies = get_extractor_proxies(extractor_name or "")
+    if extractor_proxies:
+        return extractor_proxies
+    for proxy in ([selected_proxy] if selected_proxy else []) + ([primary_proxy] if primary_proxy else []) + list(GLOBAL_PROXIES):
         if proxy and proxy not in proxies:
             proxies.append(proxy)
     return proxies

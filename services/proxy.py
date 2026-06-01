@@ -17,6 +17,7 @@ class HLSProxy(
 
     def __init__(self, ffmpeg_manager=None):
         self.extractors = {}
+        self._extractor_atimes = {}
         self.ffmpeg_manager = ffmpeg_manager
 
         # Inizializza il playlist_builder se il modulo è disponibile
@@ -40,18 +41,13 @@ class HLSProxy(
         self.session = None
         self.flex_session = None
 
-        # Registry for HLS URL shortening (to handle extremely long multi-path URLs)
-        # url_id -> (actual_url, timestamp, ttl)
-        self.hls_url_map = {}
-        self.hls_url_ttl = 3600
-        self.hls_url_extended_ttl = 10800
-        self.hls_url_max_entries = 2000
         self.captured_hls_manifest_map = {}
         self.captured_hls_refresh_tasks = {}
 
         # Cache for proxy sessions (proxy_url -> session)
         # This reuses connections for the same proxy to improve performance
         self.proxy_sessions = {}
+        self._proxy_session_atimes = {}  # proxy_url -> last access time
         self.curl_sessions = {}  # Registry for pooled curl_cffi sessions
 
         # Version information

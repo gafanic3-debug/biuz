@@ -190,6 +190,8 @@ def create_app():
     
     async def cleanup_handler(app):
         await proxy.cleanup()
+        from utils.solver_manager import shutdown_flaresolverr
+        await shutdown_flaresolverr()
     app.on_cleanup.append(cleanup_handler)
     
     async def on_startup(app):

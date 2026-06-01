@@ -132,7 +132,7 @@ class VavooExtractor:
 
         for attempt in range(3):
             try:
-                async with session.post(_LOKKE_PING_URL, json=body, headers=headers, timeout=ClientTimeout(total=10)) as resp:
+                async with session.post(_LOKKE_PING_URL, json=body, headers=headers, timeout=ClientTimeout(total=10), ssl=False) as resp:
                     if resp.status == 200:
                         data = await resp.json()
                         sig = data.get("addonSig")
@@ -155,7 +155,8 @@ class VavooExtractor:
                     _TS_PING2_URL,
                     data={"vec": _TS_VEC},
                     headers={"content-type": "application/x-www-form-urlencoded"},
-                    timeout=ClientTimeout(total=10)
+                    timeout=ClientTimeout(total=10),
+                    ssl=False
                 ) as resp:
                     if resp.status == 200:
                         data = await resp.json()
@@ -184,7 +185,7 @@ class VavooExtractor:
             "clientVersion": "3.0.2",
         }
         try:
-            async with session.post(_RESOLVE_URL, json=body, headers=headers, timeout=ClientTimeout(total=12)) as resp:
+            async with session.post(_RESOLVE_URL, json=body, headers=headers, timeout=ClientTimeout(total=12), ssl=False) as resp:
                 if resp.status != 200:
                     logger.warning(f"Resolve returned status {resp.status}")
                     return None

@@ -200,18 +200,7 @@ class DoodStreamExtractor:
             if result:
                 return result
 
-            # 2. Fallback: If first attempt failed and we haven't tried bypassing WARP yet, try direct connection
-            if not bypass_warp:
-                logger.info(f"DoodStream: first attempt failed, retrying with warp=off (direct) for {embed_url}")
-                result = await self._do_extract_with_proxy(
-                    embed_url,
-                    self._build_scraper_proxies(embed_url, bypass_warp=True),
-                )
-                if result:
-                    result["bypass_warp"] = True  # Signal to the proxy to keep using direct for segments
-                    return result
-
-            raise ExtractorError("DoodStream: tokens not found after primary attempts")
+            raise ExtractorError("DoodStream: tokens not found after primary attempt")
 
         except Exception as e:
             logger.error(f"DoodStream: cloudscraper error: {e}")

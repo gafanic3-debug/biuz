@@ -487,6 +487,26 @@ class EmbedSportsExtractor:
         return None
 
     async def close(self):
+        if self._watchdog_task:
+            self._watchdog_task.cancel()
+            try:
+                await self._watchdog_task
+            except asyncio.CancelledError:
+                pass
+        for page, _ in list(self._live_pages.values()):
+            try:
+                if not page.is_closed():
+                    await page.close()
+            except Exception:
+                pass
+        self._live_pages.clear()
+        self._manifest_cache.clear()
+        self._capture_locks.clear()
+        if time.time() - self._get_shared_activity_time() > 10:
+            await close_shared_browser()
+            self._context = None
+            self._browser = None
+            self._playwright = None
         if self.session and not self.session.closed:
             await self.session.close()
             self.session = None

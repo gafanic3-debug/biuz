@@ -343,6 +343,8 @@ class ManifestRewriter:
                 header_params += f"&proxy={urllib.parse.quote(selected_proxy, safe='')}"
             if force_direct:
                 header_params += "&direct=1"
+            if original_channel_url:
+                header_params += f"&orig_url={urllib.parse.quote(original_channel_url, safe='')}"
 
             absolute_variant_url = ManifestRewriter._inherit_query_if_missing(
                 urljoin(base_url, highest_quality_stream["url"]),
@@ -474,6 +476,8 @@ class ManifestRewriter:
             header_params += f"&proxy={urllib.parse.quote(selected_proxy, safe='')}"
         if force_direct:
             header_params += "&direct=1"
+        if original_channel_url:
+            header_params += f"&orig_url={urllib.parse.quote(original_channel_url, safe='')}"
 
         # Estrai query params dal base_url per ereditarli se necessario
         base_parsed = urllib.parse.urlparse(base_url)

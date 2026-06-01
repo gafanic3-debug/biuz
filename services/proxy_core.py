@@ -1,36 +1,14 @@
 from services.proxy_shared import *
+from utils.solver_manager import try_shutdown_idle_flaresolverr
 
 class HLSProxyCoreMixin:
 
     async def shorten_hls_url(self, url: str) -> str:
-        """Crea un ID breve per un URL e lo memorizza nella mappa."""
+        """Codifica l'URL direttamente in base64 (nessuna memoria usata per mappe)."""
         if not url:
             return ""
-        now = time.time()
-        current_ttl = hls_url_ttl_for(
-            url,
-            self.hls_url_ttl,
-            self.hls_url_extended_ttl,
-        )
-        expired_keys = [
-            key for key, (_, ts, ttl) in self.hls_url_map.items()
-            if now - ts > ttl
-        ]
-        for key in expired_keys:
-            self.hls_url_map.pop(key, None)
-
-        if len(self.hls_url_map) >= self.hls_url_max_entries:
-            oldest_keys = sorted(
-                self.hls_url_map.items(),
-                key=lambda item: item[1][1]
-            )[: max(1, len(self.hls_url_map) - self.hls_url_max_entries + 1)]
-            for key, _ in oldest_keys:
-                self.hls_url_map.pop(key, None)
-
-        # Usa un hash corto (12 caratteri) per l'URL
-        url_id = f"u_{hashlib.md5(url.encode()).hexdigest()[:12]}"
-        self.hls_url_map[url_id] = (url, now, current_ttl)
-        return url_id
+        encoded = base64.urlsafe_b64encode(url.encode()).decode().rstrip("=")
+        return f"u_{encoded}"
 
     def _refresh_segment_token(self, segment_url: str) -> str | None:
         """
@@ -97,6 +75,7 @@ class HLSProxyCoreMixin:
             seen_sources.add(source_url)
             try:
                 proxy_token = SELECTED_PROXY_CONTEXT.set(forced_proxy)
+                strict_proxy_token = STRICT_PROXY_CONTEXT.set(bool(forced_proxy))
                 try:
                     extractor = await self.get_extractor(
                         source_url,
@@ -113,6 +92,7 @@ class HLSProxyCoreMixin:
                     )
                 finally:
                     SELECTED_PROXY_CONTEXT.reset(proxy_token)
+                    STRICT_PROXY_CONTEXT.reset(strict_proxy_token)
                 refreshed_headers = refreshed.get("request_headers", captured_headers)
                 refreshed_manifests = list((refreshed.get("captured_manifests") or {}).items())
                 if not refreshed_manifests and refreshed.get("captured_manifest"):
@@ -220,7 +200,6 @@ class HLSProxyCoreMixin:
         stable_key = self._captured_manifest_stable_key(source_url, url)
         url_id = f"cm_{hashlib.md5(stable_key.encode()).hexdigest()[:12]}"
         self.captured_hls_manifest_map[url_id] = (url, manifest, headers, now, ttl, source_url)
-        self.hls_url_map[url_id] = (url, now, ttl)
         if source_url and (
             url_id not in self.captured_hls_refresh_tasks
             or self.captured_hls_refresh_tasks[url_id].done()
@@ -242,6 +221,7 @@ class HLSProxyCoreMixin:
                         seconds_left = entry_ttl - (now_ts - stored_at)
                     # Refresh proactively when <60s remain on the token.
                     if seconds_left > 60:
+                        await asyncio.sleep(min(seconds_left - 60, 60))
                         continue
                     # Hard GC only if the entry is long-dead AND no signed URL
                     # to consult (avoid evicting entries that still have valid e=).
@@ -323,15 +303,42 @@ class HLSProxyCoreMixin:
     async def start_tasks(self):
         """Starts background tasks for the proxy."""
         asyncio.create_task(self._update_latest_version())
-        # Always start WARP check (universal trace method)
-        asyncio.create_task(self._update_warp_status_loop())
+        if ENABLE_WARP:
+            asyncio.create_task(self._update_warp_status_loop())
+        asyncio.create_task(self._cleanup_stale_sessions())
+
+    async def _cleanup_stale_sessions(self):
+        """Periodically close stale extractors unused for >30s."""
+        while True:
+            await asyncio.sleep(60)
+            now = time.time()
+            stale_ext = [
+                k for k, t in self._extractor_atimes.items()
+                if now - t > 30 and k in self.extractors
+            ]
+            for key in stale_ext:
+                ext = self.extractors.pop(key, None)
+                self._extractor_atimes.pop(key, None)
+                if ext and hasattr(ext, 'close'):
+                    try:
+                        await ext.close()
+                    except Exception:
+                        pass
+                logger.info("🧹 Cleaned stale extractor: %s", key)
+            for key, task in list(self.captured_hls_refresh_tasks.items()):
+                if task.done():
+                    self.captured_hls_refresh_tasks.pop(key, None)
+            await try_shutdown_idle_flaresolverr()
 
     async def _update_warp_status_loop(self):
         """Periodically checks WARP status via Cloudflare trace (Universal)."""
         while True:
             try:
                 # We use the proxy session to check if the SOCKS5H proxy is working
-                session, _ = await self._get_proxy_session("https://www.cloudflare.com/cdn-cgi/trace")
+                session, _ = await self._get_proxy_session(
+                    "https://www.cloudflare.com/cdn-cgi/trace",
+                    forced_proxy=WARP_PROXY_URL,
+                )
                 async with session.get("https://www.cloudflare.com/cdn-cgi/trace", timeout=5) as resp:
                     if resp.status == 200:
                         text = await resp.text()
@@ -540,6 +547,7 @@ class HLSProxyCoreMixin:
         """Get a session with proxy support for the given URL.
 
         Sessions are cached and reused for the same proxy to improve performance.
+        Unused sessions older than 120s are closed and removed.
 
         Returns: (session, proxy_url) tuple
         - session: The aiohttp ClientSession to use
@@ -557,52 +565,52 @@ class HLSProxyCoreMixin:
         prefer_default_family = prefer_default_family_for_url(url)
 
         if proxy:
-            # Check if we have a cached session for this proxy
+            is_warp = "127.0.0.1:1080" in proxy
             if proxy in self.proxy_sessions:
                 cached_session = self.proxy_sessions[proxy]
                 if not cached_session.closed:
-                    # logger.debug(f"♻️ Reusing cached proxy session: {proxy}")
-                    return cached_session, proxy  # Reuse cached session
+                    if is_warp:
+                        return cached_session, proxy
+                    atime = self._proxy_session_atimes.get(proxy, 0)
+                    if time.time() - atime > 30:
+                        logger.info(f"🧹 Closing idle proxy session: {proxy}")
+                        del self.proxy_sessions[proxy]
+                        await cached_session.close()
+                    else:
+                        self._proxy_session_atimes[proxy] = time.time()
+                        return cached_session, proxy
                 else:
-                    # Remove closed session from cache
                     del self.proxy_sessions[proxy]
 
             # Create new session and cache it
             logger.info(f"🌍 Creating proxy session: {proxy}")
             try:
-                # Gestione manuale di socks5h/socks4a per compatibilità con aiohttp-socks
                 connector_url = proxy
-                rdns = True # Default per SOCKS5/4
+                rdns = True
                 if connector_url.startswith("socks5h://"):
                     connector_url = connector_url.replace("socks5h://", "socks5://")
                     rdns = True
-                    logger.debug(f"🕵️ SOCKS5h detected: forcing remote DNS resolution")
                 elif connector_url.startswith("socks4a://"):
                     connector_url = connector_url.replace("socks4a://", "socks4://")
                     rdns = True
-                    logger.debug(f"🕵️ SOCKS4a detected: forcing remote DNS resolution")
 
-                # Unlimited connections for maximum speed
                 connector = ProxyConnector.from_url(
                     connector_url,
-                    limit=0,  # Unlimited connections
-                    limit_per_host=0,  # Unlimited per host
-                    keepalive_timeout=60,  # Keep connections alive longer
-                    family=socket.AF_INET,  # Force IPv4
+                    limit=0,
+                    limit_per_host=0,
+                    keepalive_timeout=60,
+                    family=socket.AF_INET,
                     rdns=rdns,
                 )
                 timeout = ClientTimeout(total=None, connect=30, sock_connect=30, sock_read=None)
                 session = ClientSession(timeout=timeout, connector=connector)
-                self.proxy_sessions[proxy] = session  # Cache the session
-                return session, proxy  # Return proxy URL for logging
+                self.proxy_sessions[proxy] = session
+                self._proxy_session_atimes[proxy] = time.time()
+                return session, proxy
             except Exception as e:
                 logger.warning(
                     f"⚠️ Failed to create proxy connector: {e}"
                 )
-                if WARP_PROXY_URL and proxy == WARP_PROXY_URL:
-                    logger.warning("⚠️ WARP proxy unavailable, falling back to direct")
-                    session = await self._get_session(prefer_default_family=prefer_default_family)
-                    return session, None
                 raise
 
         # Fallback to shared non-proxy session
@@ -674,13 +682,35 @@ class HLSProxyCoreMixin:
 
     async def get_extractor(self, url: str, request_headers: dict, host: str = None, bypass_warp: bool = False):
         """Ottiene l'estrattore appropriato per l'URL."""
-        return await resolve_extractor(
+        result = await resolve_extractor(
             self,
             url,
             request_headers,
             host=host,
             bypass_warp=bypass_warp,
         )
+        if result:
+            for key in list(self.extractors.keys()):
+                if self.extractors[key] is result:
+                    self._extractor_atimes[key] = time.time()
+                    break
+        return result
+
+    async def _resolve_url_id(self, url_id: str) -> str | None:
+        """Risolve un url_id nell'URL originale."""
+        if not url_id:
+            return None
+        # CM IDs stored in captured_hls_manifest_map
+        if url_id.startswith("cm_") and url_id in self.captured_hls_manifest_map:
+            return self.captured_hls_manifest_map[url_id][0]
+        # U_ IDs are base64-encoded URLs
+        if url_id.startswith("u_"):
+            try:
+                padded = url_id[2:] + "=="
+                return base64.urlsafe_b64decode(padded).decode()
+            except Exception:
+                return None
+        return None
 
     async def cleanup(self):
         """Pulizia delle risorse"""
@@ -695,6 +725,7 @@ class HLSProxyCoreMixin:
                 if session and not session.closed:
                     await session.close()
             self.proxy_sessions.clear()
+            self._proxy_session_atimes.clear()
 
             # Close all cached curl sessions
             for session in list(self.curl_sessions.values()):
@@ -705,5 +736,11 @@ class HLSProxyCoreMixin:
             for extractor in self.extractors.values():
                 if hasattr(extractor, "close"):
                     await extractor.close()
+            self._extractor_atimes.clear()
+
+            for task in self.captured_hls_refresh_tasks.values():
+                task.cancel()
+            self.captured_hls_refresh_tasks.clear()
+            self.captured_hls_manifest_map.clear()
         except Exception as e:
             logger.error(f"Error during cleanup: {e}")

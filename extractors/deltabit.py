@@ -17,7 +17,7 @@ from config import (
     get_preferred_proxy_for_url,
 )
 from utils.cookie_cache import CookieCache
-from utils.solver_manager import solver_manager
+from utils.solver_manager import solver_manager, ensure_flaresolverr
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +32,18 @@ settings = Settings()
 
 class DeltabitExtractor:
     _result_cache = {} # cache for final results: {url: (result, timestamp)}
+    _cache_ttl = 600
+    _cache_max_entries = 30
+
+    @classmethod
+    def _prune_result_cache(cls):
+        now = time.time()
+        expired = [key for key, (_, ts) in cls._result_cache.items() if now - ts >= cls._cache_ttl]
+        for key in expired:
+            cls._result_cache.pop(key, None)
+        while len(cls._result_cache) > cls._cache_max_entries:
+            oldest = min(cls._result_cache, key=lambda k: cls._result_cache[k][1])
+            cls._result_cache.pop(oldest, None)
 
     def __init__(self, request_headers: dict = None, proxies: list = None, bypass_warp: bool = False):
         self.request_headers = request_headers or {}
@@ -59,6 +71,7 @@ class DeltabitExtractor:
         return self.session
 
     async def _request_flaresolverr(self, cmd: str, url: str = None, post_data: str = None, session_id: str = None, wait: int = 0, headers: dict | None = None) -> dict:
+        await ensure_flaresolverr()
         endpoint = f"{settings.flaresolverr_url.rstrip('/')}/v1"
         payload = {"cmd": cmd, "maxTimeout": (settings.flaresolverr_timeout + 60) * 1000}
         if wait > 0: payload["wait"] = wait
@@ -86,10 +99,11 @@ class DeltabitExtractor:
     async def extract(self, url: str, **kwargs) -> dict:
         # Normalize URL for cache
         normalized_url = url.strip()
+        DeltabitExtractor._prune_result_cache()
         # Check cache (10 minutes validity)
         if normalized_url in DeltabitExtractor._result_cache:
             res, ts = DeltabitExtractor._result_cache[normalized_url]
-            if time.time() - ts < 600:
+            if time.time() - ts < DeltabitExtractor._cache_ttl:
                 logger.info(f"🚀 [Cache Hit] Using cached extraction result for: {normalized_url}")
                 return res
         
@@ -145,6 +159,7 @@ class DeltabitExtractor:
                 if link_match: 
                     result = self._build_result(link_match.group(1), url, ua, proxy, cookies=cookies)
                     DeltabitExtractor._result_cache[normalized_url] = (result, time.time())
+                    DeltabitExtractor._prune_result_cache()
                     logger.info("✅ Extraction success (direct source found)")
                     return result
                 raise ExtractorError("Deltabit: Form not found")
@@ -163,6 +178,7 @@ class DeltabitExtractor:
             if not link_match: raise ExtractorError("Deltabit: Video source not found")
             result = self._build_result(link_match.group(1), url, ua, proxy, cookies=cookies)
             DeltabitExtractor._result_cache[normalized_url] = (result, time.time())
+            DeltabitExtractor._prune_result_cache()
             return result
         finally:
             if final_session_id:

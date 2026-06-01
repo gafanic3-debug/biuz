@@ -159,6 +159,7 @@ class HLSProxyDashMixin:
             logger.debug(f"   -> with headers: {headers}")
 
             # ✅ Use pooled session for better performance
+            proxy_used = None
             forced_proxy = request.query.get("proxy") or None
             bypass_warp = request.query.get("warp", "").lower() == "off"
 
@@ -225,47 +226,128 @@ class HLSProxyDashMixin:
                 )
 
             disable_ssl = get_ssl_setting_for_url(key_url, TRANSPORT_ROUTES)
-            async with session.get(key_url, headers=headers, ssl=not disable_ssl, allow_redirects=True, timeout=15) as resp:
-                if resp.status == 200 or resp.status == 206:
-                    key_data = await resp.read()
-                    logger.debug(
-                        f"✅ AES key fetched successfully: {len(key_data)} bytes"
-                    )
-
-                    # Warn if key size is unexpected (AES-128 = 16 bytes)
-                    if len(key_data) != 16 and is_browser_key:
-                        logger.warning(
-                            f"Browser-backed AES key response is {len(key_data)} bytes (expected 16). "
-                            f"The CDN may have returned an error page instead of the key. "
-                            f"Session cookies may be missing."
+            try:
+                async with session.get(key_url, headers=headers, ssl=not disable_ssl, allow_redirects=True, timeout=15) as resp:
+                    if resp.status == 200 or resp.status == 206:
+                        key_data = await resp.read()
+                        logger.debug(
+                            f"✅ AES key fetched successfully: {len(key_data)} bytes"
                         )
 
-                    return web.Response(
-                        body=key_data,
-                        content_type="application/octet-stream",
-                        headers={
-                            "Access-Control-Allow-Origin": "*",
-                            "Access-Control-Allow-Headers": "*",
-                            "Cache-Control": "no-cache, no-store, must-revalidate",
-                        },
-                    )
-                else:
-                    logger.error(f"❌ Key fetch failed with status: {resp.status}")
-                    # --- LOGICA DI INVALIDAZIONE AUTOMATICA ---
+                        # Warn if key size is unexpected (AES-128 = 16 bytes)
+                        if len(key_data) != 16 and is_browser_key:
+                            logger.warning(
+                                f"Browser-backed AES key response is {len(key_data)} bytes (expected 16). "
+                                f"The CDN may have returned an error page instead of the key. "
+                                f"Session cookies may be missing."
+                            )
+
+                        return web.Response(
+                            body=key_data,
+                            content_type="application/octet-stream",
+                            headers={
+                                "Access-Control-Allow-Origin": "*",
+                                "Access-Control-Allow-Headers": "*",
+                                "Cache-Control": "no-cache, no-store, must-revalidate",
+                            },
+                        )
+                    else:
+                        logger.error(f"❌ Key fetch failed with status: {resp.status}")
+                        if proxy_used and not forced_proxy:
+                            mark_proxy_dead(proxy_used)
+                            new_proxy = get_proxy_for_url(key_url, TRANSPORT_ROUTES, GLOBAL_PROXIES, bypass_warp=bypass_warp)
+                            if new_proxy and new_proxy != proxy_used:
+                                logger.info(f"🔑 Key fetch failed via proxy {proxy_used}, trying rotated proxy: {new_proxy}")
+                                try:
+                                    fallback_session, _ = await self._get_proxy_session(key_url, bypass_warp=bypass_warp, forced_proxy=new_proxy)
+                                    async with fallback_session.get(key_url, headers=headers, ssl=not disable_ssl, allow_redirects=True, timeout=10) as rot_resp:
+                                        if rot_resp.status in (200, 206):
+                                            key_data = await rot_resp.read()
+                                            return web.Response(
+                                                body=key_data,
+                                                content_type="application/octet-stream",
+                                                headers={
+                                                    "Access-Control-Allow-Origin": "*",
+                                                    "Access-Control-Allow-Headers": "*",
+                                                    "Cache-Control": "no-cache, no-store, must-revalidate",
+                                                },
+                                            )
+                                except Exception as fallback_e:
+                                    logger.error(f"❌ Key fetch fallback via rotated proxy {new_proxy} failed: {fallback_e}")
+                            
+                            logger.warning("🔑 Trying direct connection as final fallback for AES key...")
+                            try:
+                                async with self.session.get(key_url, headers=headers, ssl=not disable_ssl, allow_redirects=True, timeout=10) as direct_resp:
+                                    if direct_resp.status in (200, 206):
+                                        key_data = await direct_resp.read()
+                                        return web.Response(
+                                            body=key_data,
+                                            content_type="application/octet-stream",
+                                            headers={
+                                                "Access-Control-Allow-Origin": "*",
+                                                "Access-Control-Allow-Headers": "*",
+                                                "Cache-Control": "no-cache, no-store, must-revalidate",
+                                            },
+                                        )
+                            except Exception as direct_e:
+                                logger.error(f"❌ Key fetch final direct fallback failed: {direct_e}")
+
+                        # --- LOGICA DI INVALIDAZIONE AUTOMATICA ---
+                        try:
+                            url_param = request.query.get("original_channel_url")
+                            if url_param:
+                                extractor = await self.get_extractor(url_param, {})
+                                if hasattr(extractor, "invalidate_cache_for_url"):
+                                    await extractor.invalidate_cache_for_url(url_param)
+                        except Exception as cache_e:
+                            logger.error(
+                                f"⚠️ Error during automatic cache invalidation: {cache_e}"
+                            )
+                        # --- FINE LOGICA ---
+                        return web.Response(
+                            text=f"Key fetch failed: {resp.status}", status=resp.status
+                        )
+            except Exception as e:
+                if proxy_used and not forced_proxy:
+                    logger.warning(f"🔑 Key fetch failed with exception via proxy {proxy_used}: {e}. Marking dead and trying fallback...")
+                    mark_proxy_dead(proxy_used)
+                    new_proxy = get_proxy_for_url(key_url, TRANSPORT_ROUTES, GLOBAL_PROXIES, bypass_warp=bypass_warp)
+                    if new_proxy and new_proxy != proxy_used:
+                        logger.info(f"🔑 Key fetch failed, trying rotated proxy: {new_proxy}")
+                        try:
+                            fallback_session, _ = await self._get_proxy_session(key_url, bypass_warp=bypass_warp, forced_proxy=new_proxy)
+                            async with fallback_session.get(key_url, headers=headers, ssl=not disable_ssl, allow_redirects=True, timeout=10) as rot_resp:
+                                if rot_resp.status in (200, 206):
+                                    key_data = await rot_resp.read()
+                                    return web.Response(
+                                        body=key_data,
+                                        content_type="application/octet-stream",
+                                        headers={
+                                            "Access-Control-Allow-Origin": "*",
+                                            "Access-Control-Allow-Headers": "*",
+                                            "Cache-Control": "no-cache, no-store, must-revalidate",
+                                        },
+                                    )
+                        except Exception as fallback_err:
+                            logger.error(f"❌ Key fetch fallback via rotated proxy {new_proxy} failed: {fallback_err}")
+                    
+                    logger.warning("🔑 Trying direct connection as final fallback for AES key...")
                     try:
-                        url_param = request.query.get("original_channel_url")
-                        if url_param:
-                            extractor = await self.get_extractor(url_param, {})
-                            if hasattr(extractor, "invalidate_cache_for_url"):
-                                await extractor.invalidate_cache_for_url(url_param)
-                    except Exception as cache_e:
-                        logger.error(
-                            f"⚠️ Error during automatic cache invalidation: {cache_e}"
-                        )
-                    # --- FINE LOGICA ---
-                    return web.Response(
-                        text=f"Key fetch failed: {resp.status}", status=resp.status
-                    )
+                        async with self.session.get(key_url, headers=headers, ssl=not disable_ssl, allow_redirects=True, timeout=10) as direct_resp:
+                            if direct_resp.status in (200, 206):
+                                key_data = await direct_resp.read()
+                                return web.Response(
+                                    body=key_data,
+                                    content_type="application/octet-stream",
+                                    headers={
+                                        "Access-Control-Allow-Origin": "*",
+                                        "Access-Control-Allow-Headers": "*",
+                                        "Cache-Control": "no-cache, no-store, must-revalidate",
+                                    },
+                                )
+                    except Exception as direct_e:
+                        logger.error(f"❌ Key fetch final direct fallback failed: {direct_e}")
+                raise e
 
         except Exception as e:
             logger.error(f"❌ Error fetching AES key: {str(e)}")

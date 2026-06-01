@@ -54,6 +54,7 @@ from config import (
     WARP_PROXY_URL,
     BYPASS_WARP_CONTEXT,
     SELECTED_PROXY_CONTEXT,
+    STRICT_PROXY_CONTEXT,
     mark_proxy_dead,
 )
 from extractors.registry import *
