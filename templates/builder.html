@@ -774,7 +774,8 @@
                     url: url,
                     sort: false,
                     noProxy: false,
-                    nativeMpd: false
+                    nativeMpd: false,
+                    warp: false
                 });
 
                 this.urlInput.value = '';
@@ -826,6 +827,10 @@
                                     <input type="checkbox" ${item.nativeMpd ? 'checked' : ''} onchange="playlistBuilder.toggleNativeMpd(${index})">
                                     Native MPD
                                 </label>
+                                <label style="display: flex; align-items: center; gap: 4px; font-size: 0.85rem; color: var(--text-secondary); cursor: pointer;">
+                                    <input type="checkbox" ${item.warp ? 'checked' : ''} onchange="playlistBuilder.toggleWarp(${index})">
+                                    Warp Off
+                                </label>
                             </div>
                         </div>
                         <button class="btn btn-secondary btn-icon-only" onclick="playlistBuilder.removePlaylist(${index})" style="margin-left: 10px;">
@@ -847,6 +852,11 @@
 
             toggleNativeMpd(index) {
                 this.playlists[index].nativeMpd = !this.playlists[index].nativeMpd;
+                this.generatePlaylistLink();
+            }
+
+            toggleWarp(index) {
+                this.playlists[index].warp = !this.playlists[index].warp;
                 this.generatePlaylistLink();
             }
 
@@ -881,6 +891,7 @@
                     if (p.sort) def += '|sort=true';
                     if (p.noProxy) def += '|noproxy=true';
                     if (p.nativeMpd) def += '|native_mpd=true';
+                    if (p.warp) def += '|warp=off';
                     return encodeURIComponent(def);
                 });
                 const urlString = encodedDefinitions.join(';');
