@@ -56,6 +56,7 @@ from config import (
     SELECTED_PROXY_CONTEXT,
     STRICT_PROXY_CONTEXT,
     mark_proxy_dead,
+    get_extractor_proxies,
 )
 from extractors.registry import *
 from extractors.provider_hooks import *

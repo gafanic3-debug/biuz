@@ -12,6 +12,7 @@ import asyncio
 import base64
 import logging
 import re
+import time
 from urllib.parse import urlparse, parse_qs
 
 from aiohttp import ClientSession, ClientTimeout, TCPConnector
@@ -70,6 +71,7 @@ class VidXgoExtractor:
         self.selected_proxy = None
         self.session = None
         self.mediaflow_endpoint = "hls_proxy"
+        self._result_cache = {}
 
         # Headers used for fetching the embed page.
         # NOTE: the host enforces presence of Sec-Fetch-* headers; without them
@@ -203,6 +205,16 @@ class VidXgoExtractor:
             "origin": vd_domain,
         }
 
+        cache_key = (url, vd_domain, kwargs.get("proxy") or "")
+        cached = self._result_cache.get(cache_key)
+        if cached:
+            cached_ts, cached_result = cached
+            # Background refresh can be triggered by many segment requests at once.
+            # Reuse a very recent extraction to avoid token/host churn and load spikes.
+            if time.time() - cached_ts < 45 and (background_refresh or not force_refresh):
+                logger.debug("vidxgo: using recent cached m3u8 for %s", url)
+                return dict(cached_result)
+
         # 1. Fetch embed page.
         embed_headers = {**self.embed_headers, **{k.lower(): v for k, v in request_headers.items() if k.lower() == "cookie"}}
         html = await self._fetch(url, embed_headers)
@@ -254,7 +266,7 @@ class VidXgoExtractor:
 
         captured_map[m3u8_url] = master_text
 
-        return {
+        result = {
             "destination_url": m3u8_url,
             "request_headers": playback_headers,
             "captured_manifest": master_text,
@@ -262,6 +274,8 @@ class VidXgoExtractor:
             "mediaflow_endpoint": self.mediaflow_endpoint,
             "selected_proxy": self.selected_proxy,
         }
+        self._result_cache[cache_key] = (time.time(), dict(result))
+        return result
 
     async def close(self):
         if self.session and not self.session.closed:

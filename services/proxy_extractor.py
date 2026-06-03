@@ -129,6 +129,8 @@ class HLSProxyExtractorHandlerMixin:
                 url, dict(request.headers), host=host_param, bypass_warp=bypass_warp
             )
             result = await extractor.extract(url, **extractor_kwargs)
+            extractor_key = self._extractor_key_for_instance(extractor)
+            stream_key = self._stream_key_for_url(request.query.get("orig_url") or url)
 
             stream_url = result["destination_url"]
             stream_headers = result.get("request_headers", {})
@@ -203,6 +205,10 @@ class HLSProxyExtractorHandlerMixin:
             orig_url_val = request.query.get("orig_url") or url
             if orig_url_val:
                 header_params += f"&orig_url={urllib.parse.quote(orig_url_val, safe='')}"
+            if extractor_key:
+                header_params += f"&extractor_key={urllib.parse.quote(extractor_key, safe='')}"
+            if stream_key:
+                header_params += f"&stream_key={urllib.parse.quote(stream_key, safe='')}"
 
             if redirect_stream and captured_manifest and endpoint == "/proxy/hls/manifest.m3u8":
                 original_channel_url = request.query.get("orig_url") or request.query.get("url") or request.query.get("d", "")
@@ -261,6 +267,8 @@ class HLSProxyExtractorHandlerMixin:
                         disable_ssl=disable_ssl,
                         selected_proxy=selected_proxy,
                         force_direct=force_direct,
+                        extractor_key=extractor_key,
+                        stream_key=stream_key,
                     )
                     return web.Response(
                         text=rewritten_manifest,
@@ -320,6 +328,10 @@ class HLSProxyExtractorHandlerMixin:
                 q_params["api_password"] = api_password
             if selected_proxy:
                 q_params["proxy"] = selected_proxy
+            if extractor_key:
+                q_params["extractor_key"] = extractor_key
+            if stream_key:
+                q_params["stream_key"] = stream_key
 
             response_data = {
                 "destination_url": stream_url,

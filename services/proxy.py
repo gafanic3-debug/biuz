@@ -18,6 +18,7 @@ class HLSProxy(
     def __init__(self, ffmpeg_manager=None):
         self.extractors = {}
         self._extractor_atimes = {}
+        self._extractor_stream_atimes = {}
         self.ffmpeg_manager = ffmpeg_manager
 
         # Inizializza il playlist_builder se il modulo è disponibile
