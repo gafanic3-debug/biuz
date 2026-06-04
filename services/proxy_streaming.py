@@ -109,7 +109,7 @@ class HLSProxyStreamingMixin:
                         final_segment_url,
                         headers=headers,
                         ssl=not disable_ssl,
-                        timeout=ClientTimeout(total=15, connect=5, sock_connect=5, sock_read=5),
+                        timeout=ClientTimeout(total=30, connect=10, sock_connect=10, sock_read=None),
                     )
                     resp = await resp_ctx.__aenter__()
                     break
@@ -352,7 +352,10 @@ class HLSProxyStreamingMixin:
                 HAS_CURL_CFFI,
             )
             is_hls_segment_request = request.path.startswith("/proxy/hls/segment.")
-            segment_timeout = ClientTimeout(total=15, connect=5, sock_connect=5, sock_read=5)
+            # ✅ FIX BUFFERING: Use generous sock_read for segments via slow proxies.
+            # sock_read=None prevents SocketTimeoutError mid-transfer on large 1080p
+            # segments; the total timeout still caps the overall request duration.
+            segment_timeout = ClientTimeout(total=30, connect=10, sock_connect=10, sock_read=None)
 
             if use_curl_cffi:
                 logger.info(f"🚀 [curl_cffi] Using browser impersonation for: {stream_url}")
@@ -715,9 +718,21 @@ class HLSProxyStreamingMixin:
                     "video/" in content_type or stream_url.lower().endswith((".mp4", ".mkv", ".avi", ".mov"))
                 )
 
-                if is_direct_media_stream:
+                # ✅ FIX BUFFERING: Also stream HLS .ts segments chunk-by-chunk
+                # instead of buffering entirely with resp.read(). This prevents
+                # SocketTimeoutError on large segments via slow proxies and
+                # reduces perceived latency for the player.
+                is_hls_ts_segment = (
+                    is_hls_segment_request
+                    and (stream_url.lower().split('?')[0].endswith('.ts') or request.path.endswith('.ts'))
+                    and 'mpegurl' not in content_type
+                    and not content_type.startswith('text/')
+                )
+
+                if is_direct_media_stream or is_hls_ts_segment:
+                    seg_content_type = "video/MP2T" if is_hls_ts_segment else content_type
                     response_headers = {
-                        "Content-Type": content_type,
+                        "Content-Type": seg_content_type,
                         "Access-Control-Allow-Origin": "*",
                         "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
                         "Access-Control-Allow-Headers": "Range, Content-Type",
@@ -728,7 +743,11 @@ class HLSProxyStreamingMixin:
                     response = web.StreamResponse(status=resp.status, headers=response_headers)
                     await response.prepare(request)
                     try:
+                        first_chunk = True
                         async for chunk in resp.content.iter_any():
+                            if first_chunk and is_hls_ts_segment:
+                                chunk = self._strip_fake_png_header_from_ts(chunk)
+                                first_chunk = False
                             await response.write(chunk)
                         await response.write_eof()
                         return response
@@ -1025,8 +1044,12 @@ class HLSProxyStreamingMixin:
                     "Stream interrupted while using proxy %s (payload/reset): %r.",
                     active_proxy, e
                 )
-            # Invalida la sessione nel pool per evitare che i retry successivi riusino una connessione rotta
-            if session_proxy and session_proxy in self.proxy_sessions:
+            # ✅ FIX BUFFERING: Only invalidate the proxy session for real connection
+            # errors (ConnectionResetError), NOT for read timeouts (SocketTimeoutError).
+            # Read timeouts on slow proxies are transient and don't mean the session is
+            # broken — recreating it adds ~1-2s reconnection latency that causes buffering.
+            is_read_timeout = 'Timeout on reading' in str(e) or 'TimeoutError' in type(e).__name__
+            if not is_read_timeout and session_proxy and session_proxy in self.proxy_sessions:
                 stale = self.proxy_sessions.pop(session_proxy, None)
                 if stale and not stale.closed:
                     await stale.close()
