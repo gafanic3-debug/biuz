@@ -51,17 +51,6 @@ def _build_proxy_list(primary_proxy: str | None = None, extractor_name: str | No
 
 async def resolve_extractor(self, url: str, request_headers: dict, host: str = None, bypass_warp: bool = False):
     """Ottiene l'estrattore appropriato per l'URL"""
-    is_vixsrc = False
-    if host and host.lower() in ("vixsrc", "vixcloud"):
-        is_vixsrc = True
-    elif url:
-        url_lower = url.lower()
-        if "vixsrc.to" in url_lower or "vixcloud.co" in url_lower:
-            is_vixsrc = True
-
-    if is_vixsrc:
-        bypass_warp = True
-
     try:
         # 1. Selezione Manuale tramite parametro 'host'
         if host:
