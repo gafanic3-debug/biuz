@@ -265,32 +265,10 @@ class ManifestRewriter:
         lines = manifest_content.split("\n")
         rewritten_lines = []
 
-        # Determina se e VixSrc (logica speciale per quality selection)
-        is_vixsrc_stream = False
-
-        try:
-            if get_extractor_func:
-                original_request_url = (
-                    stream_headers.get("referer")
-                    or stream_headers.get("Referer")
-                    or base_url
-                )
-                extractor = await get_extractor_func(original_request_url, {})
-
-                if hasattr(extractor, "is_vixsrc") and extractor.is_vixsrc:
-                    is_vixsrc_stream = True
-                    logger.debug("Detected VixSrc stream.")
-        except Exception as e:
-            logger.error(f"Error in extractor detection: {e}")
-
         # no_bypass e mantenuto per compatibilita, ma il rewriter ora proxa sempre.
         _ = no_bypass
 
-        # ExoPlayer is stricter than VLC about HLS master/media relationships.
-        # For VixSrc, preserve the full master instead of collapsing to one
-        # variant, otherwise audio/video TrackGroups can become inconsistent.
-
-        # Generic master-playlist optimization: keep only the highest-bandwidth
+        # Master-playlist optimization: keep only the highest-bandwidth
         # video variant, while preserving audio/media tags and other metadata.
         generic_streams = []
         for i, line in enumerate(lines):
@@ -306,7 +284,7 @@ class ManifestRewriter:
                     }
                 )
 
-        if generic_streams and not is_vixsrc_stream:
+        if generic_streams:
             highest_quality_stream = max(generic_streams, key=lambda x: x["bandwidth"])
             logger.debug(
                 "Generic HLS: selected max bandwidth %s.",

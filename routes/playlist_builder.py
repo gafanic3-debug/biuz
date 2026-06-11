@@ -117,8 +117,8 @@ class PlaylistBuilder:
                     processed_url_content = f"{base_url}/proxy/manifest.m3u8?url={encoded_url}"
                 elif '.mpd' in logical_line:
                     encoded_url = urllib.parse.quote(logical_line, safe='')
-                    endpoint = "/proxy/mpd/manifest.mpd" if native_mpd else "/proxy/manifest.m3u8"
-                    processed_url_content = f"{base_url}{endpoint}?url={encoded_url}"
+                    endpoint = "/proxy/mpd/manifest.mpd" if native_mpd else "/proxy/mpd/manifest.m3u8"
+                    processed_url_content = f"{base_url}{endpoint}?d={encoded_url}"
                 elif '.php' in logical_line:
                     encoded_url = urllib.parse.quote(logical_line, safe='')
                     processed_url_content = f"{base_url}/proxy/manifest.m3u8?url={encoded_url}"

@@ -46,7 +46,7 @@ class VavooExtractor:
         
     async def _get_session(self, url: str = None):
         # Determina il proxy per l'URL (se fornito)
-        proxy = get_preferred_proxy_for_url(url, "vavoo", self.proxies)
+        proxy = await get_preferred_proxy_for_url(url, "vavoo", self.proxies)
         if not proxy and not url:
             proxy = self._get_random_proxy()
 
@@ -62,7 +62,7 @@ class VavooExtractor:
 
             if proxy:
                 logger.debug(f"Using proxy for Vavoo session: {proxy}")
-                connector = get_connector_for_proxy(proxy)
+                connector = get_connector_for_proxy(proxy, family=socket.AF_INET)
             else:
                 connector = TCPConnector(
                     limit=0,

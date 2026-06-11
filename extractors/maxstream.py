@@ -7,7 +7,7 @@ import socket
 from urllib.parse import urlparse
 from aiohttp import ClientSession, ClientTimeout, TCPConnector
 from aiohttp.resolver import DefaultResolver
-from config import FLARESOLVERR_TIMEOUT, FLARESOLVERR_URL, get_connector_for_proxy, get_solver_proxy_url, get_extractor_proxies, get_ordered_proxies_for_url, should_allow_direct_fallback
+from config import FLARESOLVERR_TIMEOUT, FLARESOLVERR_URL, get_connector_for_proxy, get_solver_proxy_url, build_proxy_with_auth, get_extractor_proxies, get_ordered_proxies_for_url, should_allow_direct_fallback
 from config import PROXY_TEST_TIMEOUT, PROXY_TEST_CONCURRENCY
 from utils.solver_manager import ensure_flaresolverr
 
@@ -265,7 +265,9 @@ class MaxstreamExtractor:
 
         fs_headers = {}
         if proxy:
-            payload["proxy"] = {"url": proxy}
+            p = build_proxy_with_auth(proxy)
+            if p:
+                payload["proxy"] = p
             fs_headers["X-Proxy-Server"] = get_solver_proxy_url(proxy)
 
         cookie_header = (headers or {}).get("Cookie") or (headers or {}).get("cookie")

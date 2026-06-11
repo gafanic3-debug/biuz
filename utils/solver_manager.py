@@ -2,6 +2,9 @@ import asyncio
 import json
 import logging
 import os
+import platform
+import signal
+import subprocess
 import sys
 import time
 
@@ -12,10 +15,12 @@ from config import FLARESOLVERR_TIMEOUT, FLARESOLVERR_URL
 logger = logging.getLogger(__name__)
 
 _flaresolverr_process: asyncio.subprocess.Process | None = None
-_flaresolverr_starting = False
-_flaresolverr_lock = asyncio.Lock()
-_flaresolverr_last_used: float = 0.0
-_FLARESOLVERR_IDLE_TIMEOUT = 60  # secondi prima di spegnere FlareSolverr inutilizzato
+_flaresolverr_owner = False  # True se questo worker ha avviato FlareSolverr
+_flaresolverr_ready = asyncio.Event()
+_FLARESOLVERR_IDLE_TIMEOUT = 60
+_FLARESOLVERR_STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "flaresolverr_state.json")
+_FLARESOLVERR_STATE_FILE = os.path.normpath(_FLARESOLVERR_STATE_FILE)
+_FLARESOLVERR_LOCK_FILE = _FLARESOLVERR_STATE_FILE + ".lock"
 
 
 async def _find_flaresolverr_script() -> str | None:
@@ -32,79 +37,190 @@ async def _find_flaresolverr_script() -> str | None:
 
 
 async def _find_flaresolverr_dir() -> str | None:
-    """Cerca la directory di FlareSolverr."""
     script_path = await _find_flaresolverr_script()
     if script_path:
         return os.path.dirname(os.path.dirname(script_path))
     return None
 
 
-async def ensure_flaresolverr() -> bool:
-    """Avvia FlareSolverr lazy se non già in esecuzione.
+def _read_fs_state() -> dict | None:
+    try:
+        with open(_FLARESOLVERR_STATE_FILE, "r") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError, Exception):
+        return None
 
-    Returns True se FlareSolverr è attivo e raggiungibile.
-    """
-    global _flaresolverr_process, _flaresolverr_starting, _flaresolverr_last_used
+
+def _write_fs_state(data: dict):
+    tmp = _FLARESOLVERR_STATE_FILE + ".tmp"
+    try:
+        with open(tmp, "w") as f:
+            json.dump(data, f)
+        os.replace(tmp, _FLARESOLVERR_STATE_FILE)
+    except Exception:
+        try:
+            os.remove(tmp)
+        except Exception:
+            pass
+
+
+def _remove_fs_state():
+    try:
+        os.remove(_FLARESOLVERR_STATE_FILE)
+    except FileNotFoundError:
+        pass
+    try:
+        os.remove(_FLARESOLVERR_LOCK_FILE)
+    except FileNotFoundError:
+        pass
+
+
+def _try_claim_lock() -> bool:
+    try:
+        fd = os.open(_FLARESOLVERR_LOCK_FILE, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        os.close(fd)
+        return True
+    except FileExistsError:
+        return False
+    except Exception:
+        return False
+
+
+def _release_lock():
+    try:
+        os.remove(_FLARESOLVERR_LOCK_FILE)
+    except FileNotFoundError:
+        pass
+
+
+def _is_pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+        return True
+    except (OSError, ProcessLookupError):
+        return False
+
+
+def _my_pid() -> int:
+    return os.getpid()
+
+
+def _collect_process_tree(pid: int) -> list[int]:
+    """Raccoglie tutti i PID dell'albero (foglie→radice) per kill sicuro."""
+    result = []
+    try:
+        children = []
+        for entry in os.listdir("/proc"):
+            if entry.isdigit():
+                try:
+                    with open(f"/proc/{entry}/status", "r") as f:
+                        for line in f:
+                            if line.startswith("PPid:"):
+                                if int(line.split()[1]) == pid:
+                                    children.append(int(entry))
+                                break
+                except (FileNotFoundError, ValueError, OSError):
+                    pass
+        for child in children:
+            result.extend(_collect_process_tree(child))
+        result.append(pid)
+    except Exception:
+        pass
+    return result
+
+
+async def ensure_flaresolverr() -> bool:
+    global _flaresolverr_process, _flaresolverr_owner
 
     if not FLARESOLVERR_URL:
         return False
 
-    wait_for_start = False
-    async with _flaresolverr_lock:
-        if _flaresolverr_starting:
-            _flaresolverr_last_used = time.time()
-            wait_for_start = True
-        elif await _is_flaresolverr_alive():
-            _flaresolverr_last_used = time.time()
-            return True
-        elif _flaresolverr_process and _flaresolverr_process.returncode is None:
-            _flaresolverr_last_used = time.time()
-            return True
+    if _flaresolverr_process and _flaresolverr_process.returncode is None:
+        _touch_last_used()
+        return True
+
+    state = _read_fs_state()
+    if state:
+        pid = state.get("pid", 0)
+        if _is_pid_alive(pid) and state.get("status") == "ready":
+            if await _is_flaresolverr_alive():
+                _touch_last_used()
+                return True
         else:
-            script = await _find_flaresolverr_script()
-            if not script:
-                logger.warning("FlareSolverr script not found, skipping auto-start")
-                return False
+            _remove_fs_state()
 
-            fs_dir = os.path.dirname(os.path.dirname(script))
-            logger.info("Starting FlareSolverr lazily from %s ...", fs_dir)
-            _flaresolverr_starting = True
+    if _try_claim_lock():
+        _flaresolverr_owner = True
+        _flaresolverr_ready.clear()
+        script = await _find_flaresolverr_script()
+        if not script:
+            _release_lock()
+            _flaresolverr_owner = False
+            logger.warning("FlareSolverr script not found, skipping auto-start")
+            return False
 
-    if wait_for_start:
+        fs_dir = os.path.dirname(os.path.dirname(script))
+        logger.info("Starting FlareSolverr lazily from %s ...", fs_dir)
+
+        try:
+            _flaresolverr_process = await asyncio.create_subprocess_exec(
+                sys.executable, script,
+                cwd=fs_dir,
+                env={**os.environ, "PORT": "8191"},
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+                start_new_session=True,
+            )
+
+            for attempt in range(30):
+                await asyncio.sleep(1)
+                if _flaresolverr_process.returncode is not None:
+                    logger.error("FlareSolverr exited prematurely (code %s)", _flaresolverr_process.returncode)
+                    _remove_fs_state()
+                    _release_lock()
+                    _flaresolverr_owner = False
+                    return False
+                if await _is_flaresolverr_alive():
+                    _write_fs_state({
+                        "pid": _flaresolverr_process.pid,
+                        "owner_pid": _my_pid(),
+                        "status": "ready",
+                        "url": FLARESOLVERR_URL,
+                        "last_used": time.time(),
+                    })
+                    logger.info("FlareSolverr is ready")
+                    _flaresolverr_ready.set()
+                    return True
+
+            logger.warning("FlareSolverr failed to start within 30s")
+            _remove_fs_state()
+            _release_lock()
+            _flaresolverr_owner = False
+            return False
+        except Exception as e:
+            logger.error("FlareSolverr start failed: %s", e)
+            _remove_fs_state()
+            _release_lock()
+            _flaresolverr_owner = False
+            return False
+    else:
+        logger.info("FlareSolverr being started by another worker, waiting...")
         for _ in range(30):
             await asyncio.sleep(1)
-            if await _is_flaresolverr_alive():
-                _flaresolverr_last_used = time.time()
-                return True
+            state = _read_fs_state()
+            if state and state.get("status") == "ready":
+                if await _is_flaresolverr_alive():
+                    _touch_last_used()
+                    return True
+        logger.warning("Timeout waiting for another worker to start FlareSolverr")
         return False
 
-    # Sblocca il lock durante l'avvero (può richiedere secondi)
-    try:
-        _flaresolverr_process = await asyncio.create_subprocess_exec(
-            sys.executable, os.path.basename(script),
-            cwd=fs_dir,
-            env={**os.environ, "PORT": "8191"},
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL,
-        )
 
-        for attempt in range(30):
-            await asyncio.sleep(1)
-            if _flaresolverr_process.returncode is not None:
-                logger.error("FlareSolverr exited prematurely (code %s)", _flaresolverr_process.returncode)
-                return False
-            if await _is_flaresolverr_alive():
-                logger.info("FlareSolverr is ready")
-                _flaresolverr_last_used = time.time()
-                return True
-
-        logger.warning("FlareSolverr failed to start within 30s")
-        return False
-    except Exception as e:
-        logger.error("FlareSolverr start failed: %s", e)
-        return False
-    finally:
-        _flaresolverr_starting = False
+def _touch_last_used():
+    state = _read_fs_state()
+    if state:
+        state["last_used"] = time.time()
+        _write_fs_state(state)
 
 
 async def _is_flaresolverr_alive() -> bool:
@@ -119,23 +235,63 @@ async def _is_flaresolverr_alive() -> bool:
 
 
 async def try_shutdown_idle_flaresolverr():
-    """Ferma FlareSolverr se inattivo oltre il timeout configurato."""
-    global _flaresolverr_process
-    if _flaresolverr_process and _flaresolverr_process.returncode is None:
-        if time.time() - _flaresolverr_last_used > _FLARESOLVERR_IDLE_TIMEOUT:
-            logger.info("FlareSolverr idle >%ss, shutting down", _FLARESOLVERR_IDLE_TIMEOUT)
-            await shutdown_flaresolverr()
+    if not _flaresolverr_owner:
+        return
+    if not _flaresolverr_process or _flaresolverr_process.returncode is not None:
+        return
+    state = _read_fs_state()
+    if not state:
+        return
+    if time.time() - state.get("last_used", 0) > _FLARESOLVERR_IDLE_TIMEOUT:
+        logger.info("FlareSolverr idle >%ss, shutting down", _FLARESOLVERR_IDLE_TIMEOUT)
+        await shutdown_flaresolverr()
 
 async def shutdown_flaresolverr():
-    """Ferma FlareSolverr se avviato da noi."""
-    global _flaresolverr_process
-    if _flaresolverr_process and _flaresolverr_process.returncode is None:
-        _flaresolverr_process.terminate()
+    global _flaresolverr_process, _flaresolverr_owner
+    proc = _flaresolverr_process
+    _flaresolverr_process = None
+    _flaresolverr_owner = False
+    _remove_fs_state()
+    _release_lock()
+
+    if not proc or proc.returncode is not None:
+        return
+
+    pid = proc.pid
+    if platform.system() == "Windows":
         try:
-            await asyncio.wait_for(_flaresolverr_process.wait(), timeout=10)
-        except asyncio.TimeoutError:
-            _flaresolverr_process.kill()
-        _flaresolverr_process = None
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(pid)],
+                capture_output=True, timeout=10,
+            )
+        except Exception:
+            pass
+    else:
+        try:
+            pids = _collect_process_tree(pid)
+            for p in pids:
+                try:
+                    os.kill(p, signal.SIGTERM)
+                except (ProcessLookupError, OSError):
+                    pass
+            await asyncio.sleep(2)
+            for p in pids:
+                try:
+                    os.kill(p, signal.SIGKILL)
+                except (ProcessLookupError, OSError):
+                    pass
+            try:
+                await asyncio.wait_for(proc.wait(), timeout=5)
+            except (asyncio.TimeoutError, ProcessLookupError):
+                pass
+            subprocess.run(
+                ["pkill", "-f", "chromium.*headless"],
+                capture_output=True, timeout=5,
+            )
+        except ProcessLookupError:
+            pass
+        except Exception:
+            pass
 
 
 class SolverSessionManager:

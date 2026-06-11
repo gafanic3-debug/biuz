@@ -221,9 +221,9 @@ except Exception as e:
 
 try:
     from extractors.embedsports import EmbedSportsExtractor
-    logger.info("âœ… EmbedSportsExtractor module loaded.")
+    logger.info("✅ EmbedSportsExtractor module loaded.")
 except Exception as e:
-    logger.warning("âš ï¸ EmbedSportsExtractor failed to load: %s", e)
+    logger.warning("⚠️ EmbedSportsExtractor failed to load: %s", e)
     EmbedSportsExtractor = None
 
 try:

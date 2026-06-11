@@ -1,180 +1,591 @@
 <!DOCTYPE html>
-<html lang="en" class="h-full">
-
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>EasyProxy URL Generator</title>
+    <title>EasyProxy - URL Generator</title>
     <link rel="icon" type="image/x-icon" href="/favicon.ico">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-        tailwind.config = {
-            darkMode: 'class',
-            theme: {
-                extend: {
-                    fontFamily: {
-                        display: ['Satoshi', 'system-ui', 'sans-serif'],
-                        mono: ['JetBrains Mono', 'Fira Code', 'monospace'],
-                    }
-                }
-            }
-        };
-    </script>
     <style>
-        @import url('https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700&display=swap');
-        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
 
-        .tab-active {
-            background: linear-gradient(135deg, #0f766e 0%, #0284c7 100%);
+        :root {
+            --bg-primary: #09090f;
+            --bg-secondary: #111119;
+            --surface: rgba(255, 255, 255, 0.03);
+            --surface-glass: rgba(255, 255, 255, 0.06);
+            --surface-elevated: rgba(255, 255, 255, 0.1);
+            --primary-gradient: linear-gradient(135deg, #6366f1 0%, #a855f7 50%, #ec4899 100%);
+            --neon-gradient: linear-gradient(90deg, #06b6d4, #a855f7, #ec4899, #a855f7, #06b6d4);
+            --accent-primary: #6366f1;
+            --accent-success: #10b981;
+            --text-primary: #ffffff;
+            --text-secondary: #a1a1aa;
+            --text-muted: #6b6b80;
+            --border-primary: rgba(255, 255, 255, 0.08);
+            --border-accent: rgba(255, 255, 255, 0.15);
+            --glow-primary: 0 0 30px rgba(99, 102, 241, 0.25);
+            --glow-secondary: 0 0 40px rgba(168, 85, 247, 0.3);
+            --shadow-dark: 0 25px 60px -15px rgba(0, 0, 0, 0.8);
+            --transition-fast: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+            --transition-normal: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            --border-radius: 16px;
+            --border-radius-large: 24px;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        #particles-canvas {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        .bg-glow {
+            position: fixed;
+            top: -40%; left: -20%;
+            width: 140%; height: 140%;
+            background:
+                radial-gradient(ellipse at 20% 50%, rgba(99, 102, 241, 0.12) 0%, transparent 50%),
+                radial-gradient(ellipse at 80% 20%, rgba(168, 85, 247, 0.1) 0%, transparent 50%),
+                radial-gradient(ellipse at 50% 80%, rgba(6, 182, 212, 0.08) 0%, transparent 50%);
+            animation: bgFloat 30s ease-in-out infinite;
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        @keyframes bgFloat {
+            0%, 100% { transform: translateY(0) scale(1); }
+            33% { transform: translateY(-20px) scale(1.02); }
+            66% { transform: translateY(20px) scale(0.98); }
+        }
+
+        .container {
+            max-width: 860px;
+            margin: 0 auto;
+            padding: 2rem 1.5rem;
+            min-height: 100vh;
+            position: relative;
+            z-index: 1;
+        }
+
+        .back-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 0.7rem 1.4rem;
+            border-radius: var(--border-radius);
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 0.9rem;
+            background: var(--surface-glass);
+            color: var(--text-primary);
+            border: 1px solid var(--border-primary);
+            backdrop-filter: blur(20px);
+            transition: var(--transition-normal);
+            margin-bottom: 2rem;
+        }
+
+        .back-link:hover {
+            transform: translateY(-2px);
+            background: var(--surface-elevated);
+            border-color: var(--border-accent);
+        }
+
+        .page-title {
+            font-size: clamp(2.2rem, 5vw, 3.5rem);
+            font-weight: 900;
+            letter-spacing: -0.03em;
+            line-height: 1.1;
+            margin-bottom: 0.5rem;
+            background: var(--neon-gradient);
+            background-size: 300% 300%;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            animation: gradientShift 4s ease-in-out infinite;
+        }
+
+        .page-subtitle {
+            font-size: 1rem;
+            color: var(--text-secondary);
+            margin-bottom: 2rem;
+            line-height: 1.6;
+        }
+
+        @keyframes gradientShift {
+            0%, 100% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+        }
+
+        .api-password-card {
+            background: var(--surface-glass);
+            border: 1px solid var(--border-primary);
+            border-radius: var(--border-radius);
+            padding: 1.25rem 1.5rem;
+            backdrop-filter: blur(20px);
+            margin-bottom: 1.5rem;
+            transition: var(--transition-normal);
+        }
+
+        .api-password-card:focus-within {
+            border-color: var(--accent-primary);
+            box-shadow: var(--glow-primary);
+        }
+
+        .api-password-card label {
+            display: block;
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin-bottom: 0.5rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .api-password-card input {
+            width: 100%;
+            background: transparent;
+            border: none;
+            outline: none;
+            color: var(--text-primary);
+            font-family: 'Inter', sans-serif;
+            font-size: 0.95rem;
+            padding: 0.25rem 0;
+        }
+
+        .api-password-card input::placeholder {
+            color: var(--text-muted);
+        }
+
+        .tabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 1.5rem;
+            flex-wrap: wrap;
+        }
+
+        .tab-btn {
+            padding: 0.7rem 1.5rem;
+            border-radius: var(--border-radius);
+            font-weight: 600;
+            font-size: 0.85rem;
+            border: 1px solid var(--border-primary);
+            background: var(--surface-glass);
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: var(--transition-normal);
+            backdrop-filter: blur(20px);
+            font-family: 'Inter', sans-serif;
+        }
+
+        .tab-btn:hover {
+            border-color: var(--border-accent);
+            background: var(--surface-elevated);
+            color: var(--text-primary);
+        }
+
+        .tab-btn.active {
+            background: var(--primary-gradient);
             color: white;
-            box-shadow: 0 4px 15px rgba(2, 132, 199, 0.3);
+            border-color: transparent;
+            box-shadow: var(--glow-primary);
+        }
+
+        .tab-panel {
+            display: none;
+        }
+
+        .tab-panel.active {
+            display: block;
+        }
+
+        .glass-card {
+            background: var(--surface-glass);
+            border: 1px solid var(--border-primary);
+            border-radius: var(--border-radius-large);
+            padding: 2rem;
+            backdrop-filter: blur(20px);
+            transition: var(--transition-normal);
+        }
+
+        .glass-card:hover {
+            border-color: var(--border-accent);
+        }
+
+        .glass-card:focus-within {
+            border-color: var(--accent-primary);
+            box-shadow: var(--glow-primary);
+        }
+
+        .form-group {
+            margin-bottom: 1.25rem;
+        }
+
+        .form-group label {
+            display: block;
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin-bottom: 0.5rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .form-group input,
+        .form-group select,
+        .form-group textarea {
+            width: 100%;
+            padding: 0.85rem 1rem;
+            border-radius: var(--border-radius);
+            border: 1px solid var(--border-primary);
+            background: var(--surface);
+            color: var(--text-primary);
+            font-family: 'Inter', sans-serif;
+            font-size: 0.9rem;
+            outline: none;
+            transition: var(--transition-normal);
+        }
+
+        .form-group input:focus,
+        .form-group select:focus,
+        .form-group textarea:focus {
+            border-color: var(--accent-primary);
+            box-shadow: var(--glow-primary);
+        }
+
+        .form-group textarea {
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 0.82rem;
+            line-height: 1.5;
+            resize: vertical;
+            min-height: 100px;
+        }
+
+        .form-group input::placeholder,
+        .form-group textarea::placeholder {
+            color: var(--text-muted);
+        }
+
+        .form-group select {
+            cursor: pointer;
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23a1a1aa' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 1rem center;
+            padding-right: 2.5rem;
+        }
+
+        .form-group select option {
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+        }
+
+        .form-hint {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-top: 0.35rem;
+            line-height: 1.4;
+        }
+
+        .form-hint code {
+            color: var(--accent-primary);
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 0.72rem;
+        }
+
+        .checkbox-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 0.75rem;
+            margin-bottom: 1.25rem;
+        }
+
+        .checkbox-label {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 0.65rem 1rem;
+            border-radius: var(--border-radius);
+            border: 1px solid var(--border-primary);
+            background: var(--surface);
+            cursor: pointer;
+            transition: var(--transition-normal);
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+
+        .checkbox-label:hover {
+            border-color: var(--border-accent);
+            background: var(--surface-glass);
+        }
+
+        .checkbox-label input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+            accent-color: var(--accent-primary);
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+
+        .checkbox-label code {
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 0.78rem;
+            color: var(--accent-primary);
+        }
+
+        .btn-row {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 1.25rem;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 0.85rem 1.75rem;
+            border-radius: var(--border-radius);
+            font-weight: 600;
+            font-size: 0.9rem;
+            border: none;
+            cursor: pointer;
+            transition: var(--transition-normal);
+            font-family: 'Inter', sans-serif;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn::before {
+            content: '';
+            position: absolute;
+            top: 0; left: -100%;
+            width: 100%; height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent);
+            transition: var(--transition-normal);
+        }
+
+        .btn:hover::before { left: 100%; }
+
+        .btn-primary {
+            background: var(--primary-gradient);
+            color: white;
+            box-shadow: var(--glow-primary);
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--glow-secondary);
+        }
+
+        .btn-secondary {
+            background: var(--surface-elevated);
+            color: var(--text-primary);
+            border: 1px solid var(--border-primary);
+        }
+
+        .btn-secondary:hover {
+            transform: translateY(-2px);
+            background: var(--surface-glass);
+            border-color: var(--border-accent);
+        }
+
+        .result-area {
+            width: 100%;
+            min-height: 100px;
+            padding: 1rem;
+            border-radius: var(--border-radius);
+            border: 1px solid var(--border-primary);
+            background: rgba(0, 0, 0, 0.3);
+            color: var(--text-primary);
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 0.8rem;
+            line-height: 1.5;
+            resize: vertical;
+            outline: none;
+        }
+
+        .result-area:focus {
+            border-color: var(--accent-primary);
+        }
+
+        .generated-url-list {
+            list-style: none;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-top: 1rem;
+        }
+
+        .generated-url-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 0.6rem 0.8rem;
+            border-radius: 10px;
+            border: 1px solid var(--border-primary);
+            background: rgba(0, 0, 0, 0.2);
+            word-break: break-all;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 0.78rem;
+            line-height: 1.4;
+        }
+
+        .generated-url-item .url-text {
+            flex: 1;
+            min-width: 0;
+            color: var(--text-primary);
+        }
+
+        .generated-url-item .copy-mini-btn {
+            flex-shrink: 0;
+            padding: 4px 10px;
+            border-radius: 8px;
+            border: 1px solid var(--border-primary);
+            background: var(--surface-glass);
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 0.72rem;
+            font-family: 'Inter', sans-serif;
+            transition: var(--transition-fast);
+        }
+
+        .generated-url-item .copy-mini-btn:hover {
+            background: var(--surface-elevated);
+            border-color: var(--border-accent);
+            color: var(--text-primary);
+        }
+
+        .generated-url-item .url-index {
+            flex-shrink: 0;
+            width: 24px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 6px;
+            background: var(--primary-gradient);
+            font-size: 0.7rem;
+            font-weight: 700;
+            color: white;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 2rem 1rem;
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: var(--bg-secondary); }
+        ::-webkit-scrollbar-thumb { background: var(--surface-elevated); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--border-accent); }
+
+        @media (max-width: 600px) {
+            .container { padding: 1rem; }
+            .glass-card { padding: 1.25rem; }
+            .checkbox-grid { grid-template-columns: 1fr; }
+            .btn-row { flex-direction: column; }
+            .btn { width: 100%; justify-content: center; }
         }
     </style>
 </head>
+<body>
 
-<body
-    class="bg-gradient-to-br from-stone-50 via-slate-100 to-cyan-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-800 min-h-full font-display">
-    <div class="fixed top-4 left-4 z-50">
-        <a href="/"
-            class="flex items-center gap-2 px-4 py-2 rounded-full bg-white/85 dark:bg-slate-800/85 backdrop-blur-sm hover:bg-slate-100 dark:hover:bg-slate-700 transition shadow-lg text-slate-700 dark:text-slate-200 text-sm font-medium">
-            <i class="fa-solid fa-arrow-left"></i>
-            Home
+    <canvas id="particles-canvas"></canvas>
+    <div class="bg-glow"></div>
+
+    <div class="container">
+        <a href="/" class="back-link">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+            Back to Home
         </a>
-    </div>
 
-    <div class="fixed top-4 right-4 z-50">
-        <button id="themeToggle"
-            class="p-2.5 rounded-full bg-white/85 dark:bg-slate-800/85 backdrop-blur-sm hover:bg-slate-100 dark:hover:bg-slate-700 transition shadow-lg">
-            <svg class="w-5 h-5 text-amber-500 hidden dark:block" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                    d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
-            </svg>
-            <svg class="w-5 h-5 text-cyan-700 block dark:hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                    d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
-            </svg>
-        </button>
-    </div>
+        <h1 class="page-title">URL Generator</h1>
+        <p class="page-subtitle">Generate proxy URLs, extractor links, and batch requests compatible with EasyProxy.</p>
 
-    <main class="container mx-auto px-4 py-12 max-w-5xl">
-        <section
-            class="rounded-3xl p-8 md:p-10 mb-8 bg-white/70 dark:bg-slate-800/80 border border-white/50 dark:border-slate-700 shadow-xl">
-            <h1
-                class="text-4xl font-bold bg-gradient-to-r from-teal-600 via-sky-600 to-orange-500 bg-clip-text text-transparent mb-3">
-                URL Generator</h1>
-            <p class="text-slate-600 dark:text-slate-300 text-lg">
-                Genera URL proxy, link extractor e richieste batch compatibili con EasyProxy.
-            </p>
-        </section>
+        <div class="api-password-card">
+            <label>API Password</label>
+            <input id="apiPassword" type="password" placeholder="Optional — only if the server is password-protected">
+        </div>
 
-        <section
-            class="bg-white dark:bg-slate-800 rounded-2xl shadow-xl p-6 border border-slate-200 dark:border-slate-700 mb-6">
-            <label class="block text-sm font-semibold text-slate-700 dark:text-slate-200 mb-2">API Password</label>
-            <input id="apiPassword" type="password" placeholder="Opzionale, solo se il server e protetto"
-                class="w-full px-4 py-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-700/50 text-slate-900 dark:text-white focus:outline-none focus:border-sky-500">
-        </section>
+        <div class="tabs">
+            <button class="tab-btn active" data-tab="proxy">Proxy URL</button>
+            <button class="tab-btn" data-tab="extractor">Extractor URL</button>
+            <button class="tab-btn" data-tab="batch">Batch Generate</button>
+        </div>
 
-        <section class="flex flex-wrap gap-2 mb-6">
-            <button id="tab-proxy"
-                class="tab-button tab-active px-5 py-3 rounded-xl font-semibold text-sm transition-all"
-                data-tab="proxy">Proxy URL</button>
-            <button id="tab-extractor"
-                class="tab-button px-5 py-3 rounded-xl font-semibold text-sm transition-all bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 shadow-md"
-                data-tab="extractor">Extractor</button>
-            <button id="tab-batch"
-                class="tab-button px-5 py-3 rounded-xl font-semibold text-sm transition-all bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 shadow-md"
-                data-tab="batch">Batch JSON</button>
-        </section>
-
-        <section id="panel-proxy"
-            class="tab-panel bg-white dark:bg-slate-800 rounded-2xl shadow-xl p-6 border border-slate-200 dark:border-slate-700">
-            <div class="grid gap-4">
-                <div>
-                    <label class="block text-sm font-semibold text-slate-700 dark:text-slate-200 mb-2">Tipo
-                        endpoint</label>
-                    <select id="proxyEndpoint"
-                        class="w-full px-4 py-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-700/50 text-slate-900 dark:text-white">
+        <!-- Proxy URL Tab -->
+        <div id="panel-proxy" class="tab-panel active">
+            <div class="glass-card">
+                <div class="form-group">
+                    <label>Endpoint Type</label>
+                    <select id="proxyEndpoint">
                         <option value="/proxy/hls/manifest.m3u8">HLS Manifest</option>
                         <option value="/proxy/mpd/manifest.m3u8">MPD Manifest</option>
-                        <option value="/proxy/stream">Stream</option>
+                        <option value="/proxy/mpd/manifest.mpd">Native MPD</option>
+                        <option value="/proxy/stream">Generic Stream</option>
                         <option value="/proxy/manifest.m3u8">Legacy Manifest</option>
+                        <option value="/decrypt/segment.mp4">Decrypt MP4</option>
+                        <option value="/decrypt/segment.ts">Decrypt TS</option>
                     </select>
                 </div>
-                <div>
-                    <label class="block text-sm font-semibold text-slate-700 dark:text-slate-200 mb-2">Destination
-                        URL</label>
-                    <input id="destinationUrl" type="url" placeholder="https://example.com/stream.m3u8"
-                        class="w-full px-4 py-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-700/50 text-slate-900 dark:text-white focus:outline-none focus:border-sky-500">
+                <div class="form-group">
+                    <label>Destination URL</label>
+                    <input id="destinationUrl" type="url" placeholder="https://example.com/stream.m3u8">
                 </div>
-                <div>
-                    <label class="block text-sm font-semibold text-slate-700 dark:text-slate-200 mb-2">Request
-                        Headers</label>
-                    <textarea id="requestHeaders" rows="5"
-                        placeholder='{"User-Agent":"Mozilla/5.0","Referer":"https://site.example/"}'
-                        class="w-full px-4 py-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-700/50 text-slate-900 dark:text-white font-mono text-sm focus:outline-none focus:border-sky-500"></textarea>
+                <div class="form-group">
+                    <label>Request Headers</label>
+                    <textarea id="requestHeaders" rows="5" placeholder='{"User-Agent":"Mozilla/5.0","Referer":"https://site.example/"}'></textarea>
                 </div>
-                <div class="flex flex-wrap gap-4 items-center">
-                    <div class="flex-1 min-w-[200px]">
-                        <label
-                            class="flex items-center gap-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-700/30 px-4 py-3 text-sm text-slate-700 dark:text-slate-200 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700/50 transition">
-                            <input id="proxyRedirectStream" type="checkbox" class="h-4 w-4 accent-sky-600">
-                            <span>Add <code>redirect_stream=true</code></span>
-                        </label>
-                        <p class="mt-1 ml-1 text-[10px] text-slate-500 dark:text-slate-400 italic">Automatically redirects to the proxied stream URL instead of showing JSON details.</p>
-                    </div>
-                    <div class="flex-1 min-w-[200px]">
-                        <label
-                            class="flex items-center gap-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-700/30 px-4 py-3 text-sm text-slate-700 dark:text-slate-200 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700/50 transition">
-                            <input id="proxyBypassWarp" type="checkbox" class="h-4 w-4 accent-sky-600">
-                            <span>Add <code>warp=off</code></span>
-                        </label>
-                        <p class="mt-1 ml-1 text-[10px] text-slate-500 dark:text-slate-400 italic">Bypasses the Cloudflare WARP SOCKS5 proxy for this specific request.</p>
-                    </div>
-                    <div class="flex-1 min-w-[200px]">
-                        <label
-                            class="flex items-center gap-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-700/30 px-4 py-3 text-sm text-slate-700 dark:text-slate-200 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700/50 transition">
-                            <input id="proxyDisableSSL" type="checkbox" class="h-4 w-4 accent-sky-600">
-                            <span>Add <code>disable_ssl=1</code></span>
-                        </label>
-                        <p class="mt-1 ml-1 text-[10px] text-slate-500 dark:text-slate-400 italic">Bypasses SSL certificate verification for this specific request.</p>
-                    </div>
-                    <div class="flex-1 min-w-[200px]">
-                        <label
-                            class="flex items-center gap-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-700/30 px-4 py-3 text-sm text-slate-700 dark:text-slate-200 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700/50 transition">
-                            <input id="proxyNativeMpd" type="checkbox" class="h-4 w-4 accent-sky-600">
-                            <span>Native MPD endpoint (<code>/proxy/mpd/manifest.mpd</code>)</span>
-                        </label>
-                        <p class="mt-1 ml-1 text-[10px] text-slate-500 dark:text-slate-400 italic">Overrides the endpoint to use native DASH MPD instead of HLS conversion.</p>
-                    </div>
+                <div class="checkbox-grid">
+                    <label class="checkbox-label">
+                        <input id="proxyRedirectStream" type="checkbox">
+                        <span>Add <code>redirect_stream=true</code></span>
+                    </label>
+                    <label class="checkbox-label">
+                        <input id="proxyBypassWarp" type="checkbox">
+                        <span>Add <code>warp=off</code></span>
+                    </label>
+                    <label class="checkbox-label">
+                        <input id="proxyDisableSSL" type="checkbox">
+                        <span>Add <code>disable_ssl=1</code></span>
+                    </label>
+                    <label class="checkbox-label">
+                        <input id="proxyNativeMpd" type="checkbox">
+                        <span>Native MPD endpoint (<code>/proxy/mpd/manifest.mpd</code>)</span>
+                    </label>
                 </div>
-                <div class="flex gap-3">
-                    <button id="generateProxy"
-                        class="px-5 py-3 rounded-xl text-white font-semibold bg-gradient-to-r from-teal-600 to-sky-600 hover:opacity-95 transition">
-                        Genera URL
-                    </button>
-                    <button id="copyProxyResult"
-                        class="px-5 py-3 rounded-xl font-semibold bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-white transition">
-                        Copia
-                    </button>
+                <div class="btn-row">
+                    <button id="generateProxy" class="btn btn-primary">Generate URL</button>
+                    <button id="copyProxyResult" class="btn btn-secondary">Copy</button>
                 </div>
-                <textarea id="proxyResult" rows="5" readonly
-                    class="w-full px-4 py-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-slate-950 text-slate-100 font-mono text-sm"></textarea>
+                <textarea id="proxyResult" class="result-area" readonly rows="5" placeholder="Generated URL will appear here..."></textarea>
             </div>
-        </section>
+        </div>
 
-        <section id="panel-extractor"
-            class="tab-panel hidden bg-white dark:bg-slate-800 rounded-2xl shadow-xl p-6 border border-slate-200 dark:border-slate-700">
-            <div class="grid gap-4">
-                <div>
-                    <label class="block text-sm font-semibold text-slate-700 dark:text-slate-200 mb-2">Host
-                        extractor</label>
-                    <div class="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px]">
-                        <input id="extractorHost" type="text" placeholder="Host scelto oppure personalizzato"
-                            class="w-full px-4 py-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-700/50 text-slate-900 dark:text-white focus:outline-none focus:border-sky-500">
-                        <select id="extractorHostSelect"
-                            class="w-full px-4 py-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-700/50 text-slate-900 dark:text-white focus:outline-none focus:border-sky-500">
-                            <option value="">Seleziona host</option>
+        <!-- Extractor URL Tab -->
+        <div id="panel-extractor" class="tab-panel">
+            <div class="glass-card">
+                <div class="form-group">
+                    <label>Extractor Host</label>
+                    <div style="display:grid;gap:10px;grid-template-columns:minmax(0,1fr) 200px;">
+                        <input id="extractorHost" type="text" placeholder="Custom or selected host">
+                        <select id="extractorHostSelect">
+                            <option value="">Select host</option>
                             <option value="vixcloud">VixCloud</option>
                             <option value="voe">VOE</option>
                             <option value="mixdrop">MixDrop</option>
@@ -209,76 +620,61 @@
                             <option value="cinemacity">CinemaCity</option>
                         </select>
                     </div>
-                    <p class="mt-2 text-xs text-slate-500 dark:text-slate-400">Puoi scegliere dal menu oppure scrivere
-                        manualmente un host personalizzato.</p>
+                    <div class="form-hint">You can type a host manually or select one from the dropdown.</div>
                 </div>
-                <div>
-                    <label class="block text-sm font-semibold text-slate-700 dark:text-slate-200 mb-2">Video URL</label>
-                    <input id="extractorUrl" type="url" placeholder="https://host.example/embed/..."
-                        class="w-full px-4 py-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-700/50 text-slate-900 dark:text-white focus:outline-none focus:border-sky-500">
+                <div class="form-group">
+                    <label>Video URL</label>
+                    <input id="extractorUrl" type="url" placeholder="https://host.example/embed/...">
                 </div>
-                <div>
-                    <label class="block text-sm font-semibold text-slate-700 dark:text-slate-200 mb-2">Estensione
-                        endpoint</label>
-                    <select id="extractorExtension"
-                        class="w-full px-4 py-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-700/50 text-slate-900 dark:text-white focus:outline-none focus:border-sky-500">
-                        <option value="">Nessuna estensione</option>
-                        <option value=".m3u8">.m3u8</option>
-                        <option value=".mp4">.mp4</option>
+                <div class="form-group">
+                    <label>Endpoint Extension</label>
+                    <select id="extractorExtension">
+                        <option value="">No extension</option>
+                        <option value=".m3u8">.m3u8 — HLS Playlist</option>
+                        <option value=".mpd">.mpd — DASH Manifest</option>
+                        <option value=".mp4">.mp4 — MP4 Video</option>
+                        <option value=".ts">.ts — MPEG-TS Segment</option>
+                        <option value=".m4s">.m4s — DASH Segment</option>
+                        <option value=".vtt">.vtt — Subtitles</option>
+                        <option value=".aac">.aac — AAC Audio</option>
+                        <option value=".m4a">.m4a — MP4 Audio</option>
+                        <option value=".webm">.webm — WebM Video</option>
+                        <option value=".mkv">.mkv — Matroska Video</option>
+                        <option value=".avi">.avi — AVI Video</option>
+                        <option value=".mov">.mov — QuickTime Video</option>
                     </select>
-                    <p class="mt-2 text-xs text-slate-500 dark:text-slate-400">Scegli prima di generare URL. Esempio:
-                        VixSrc con <code>.m3u8</code>, Mixdrop con <code>.mp4</code>.</p>
+                    <div class="form-hint">Select the appropriate extension for your source. VixSrc → <code>.m3u8</code>, Mixdrop → <code>.mp4</code>, DASH streams → <code>.mpd</code>.</div>
                 </div>
-                <div class="flex flex-wrap gap-4 items-center">
-                    <div class="flex-1 min-w-[200px]">
-                        <label
-                            class="flex items-center gap-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-700/30 px-4 py-3 text-sm text-slate-700 dark:text-slate-200 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700/50 transition">
-                            <input id="extractorRedirectStream" type="checkbox" class="h-4 w-4 accent-sky-600">
-                            <span>Add <code>redirect_stream=true</code></span>
-                        </label>
-                        <p class="mt-1 ml-1 text-[10px] text-slate-500 dark:text-slate-400 italic">Automatically redirects to the proxied stream URL instead of showing JSON details.</p>
-                    </div>
-                    <div class="flex-1 min-w-[200px]">
-                        <label
-                            class="flex items-center gap-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-700/30 px-4 py-3 text-sm text-slate-700 dark:text-slate-200 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700/50 transition">
-                            <input id="extractorBypassWarp" type="checkbox" class="h-4 w-4 accent-sky-600">
-                            <span>Add <code>warp=off</code></span>
-                        </label>
-                        <p class="mt-1 ml-1 text-[10px] text-slate-500 dark:text-slate-400 italic">Bypasses the Cloudflare WARP SOCKS5 proxy for this specific request.</p>
-                    </div>
-                    <div class="flex-1 min-w-[200px]">
-                        <label
-                            class="flex items-center gap-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-700/30 px-4 py-3 text-sm text-slate-700 dark:text-slate-200 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700/50 transition">
-                            <input id="extractorDisableSSL" type="checkbox" class="h-4 w-4 accent-sky-600">
-                            <span>Add <code>disable_ssl=1</code></span>
-                        </label>
-                        <p class="mt-1 ml-1 text-[10px] text-slate-500 dark:text-slate-400 italic">Bypasses SSL certificate verification for this specific request.</p>
-                    </div>
+                <div class="checkbox-grid">
+                    <label class="checkbox-label">
+                        <input id="extractorRedirectStream" type="checkbox">
+                        <span>Add <code>redirect_stream=true</code></span>
+                    </label>
+                    <label class="checkbox-label">
+                        <input id="extractorBypassWarp" type="checkbox">
+                        <span>Add <code>warp=off</code></span>
+                    </label>
+                    <label class="checkbox-label">
+                        <input id="extractorDisableSSL" type="checkbox">
+                        <span>Add <code>disable_ssl=1</code></span>
+                    </label>
                 </div>
-                <div class="flex gap-3">
-                    <button id="generateExtractor"
-                        class="px-5 py-3 rounded-xl text-white font-semibold bg-gradient-to-r from-orange-500 to-amber-500 hover:opacity-95 transition">
-                        Genera Extractor URL
-                    </button>
-                    <button id="copyExtractorResult"
-                        class="px-5 py-3 rounded-xl font-semibold bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-white transition">
-                        Copia
-                    </button>
+                <div class="btn-row">
+                    <button id="generateExtractor" class="btn btn-primary">Generate Extractor URL</button>
+                    <button id="copyExtractorResult" class="btn btn-secondary">Copy</button>
                 </div>
-                <textarea id="extractorResult" rows="4" readonly
-                    class="w-full px-4 py-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-slate-950 text-slate-100 font-mono text-sm"></textarea>
+                <textarea id="extractorResult" class="result-area" readonly rows="4" placeholder="Generated extractor URL will appear here..."></textarea>
             </div>
-        </section>
+        </div>
 
-        <section id="panel-batch"
-            class="tab-panel hidden bg-white dark:bg-slate-800 rounded-2xl shadow-xl p-6 border border-slate-200 dark:border-slate-700">
-            <div class="grid gap-4">
-                <p class="text-sm text-slate-600 dark:text-slate-300">
-                    Invia direttamente il body JSON a <code>/generate_urls</code>. Se lasci quello di default, genera un
-                    solo URL proxy.
+        <!-- Batch Generate Tab -->
+        <div id="panel-batch" class="tab-panel">
+            <div class="glass-card">
+                <p style="font-size:0.9rem;color:var(--text-secondary);margin-bottom:1rem;line-height:1.6;">
+                    Send a JSON payload directly to <code style="color:var(--accent-primary);font-family:monospace;">/generate_urls</code>. The default example generates a single proxy URL.
                 </p>
-                <textarea id="batchPayload" rows="14"
-                    class="w-full px-4 py-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-slate-950 text-slate-100 font-mono text-sm focus:outline-none focus:border-sky-500">{
+                <div class="form-group">
+                    <textarea id="batchPayload" rows="14">{
   "urls": [
     {
       "destination_url": "https://example.com/stream.m3u8",
@@ -289,56 +685,111 @@
     }
   ]
 }</textarea>
-                <div class="flex gap-3">
-                    <button id="generateBatch"
-                        class="px-5 py-3 rounded-xl text-white font-semibold bg-gradient-to-r from-sky-600 to-cyan-600 hover:opacity-95 transition">
-                        Invia Batch
-                    </button>
-                    <button id="copyBatchResult"
-                        class="px-5 py-3 rounded-xl font-semibold bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-white transition">
-                        Copia
-                    </button>
                 </div>
-                <textarea id="batchResult" rows="10" readonly
-                    class="w-full px-4 py-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-slate-950 text-slate-100 font-mono text-sm"></textarea>
+                <div class="btn-row">
+                    <button id="generateBatch" class="btn btn-primary">Send Batch</button>
+                    <button id="copyBatchResult" class="btn btn-secondary">Copy</button>
+                </div>
+                <div id="batchUrlList"></div>
+                <textarea id="batchResult" class="result-area" readonly rows="10" placeholder="Batch result will appear here..."></textarea>
             </div>
-        </section>
-    </main>
+        </div>
+
+    </div>
 
     <script>
-        const root = document.documentElement;
-        const savedTheme = localStorage.getItem('easyproxy-theme');
-        if (savedTheme === 'dark' || (!savedTheme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-            root.classList.add('dark');
+        const canvas = document.getElementById('particles-canvas');
+        const ctx = canvas.getContext('2d');
+        let particles = [];
+
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        resize();
+        window.addEventListener('resize', resize);
+
+        class Particle {
+            constructor() { this.reset(); }
+            reset() {
+                this.x = Math.random() * canvas.width;
+                this.y = Math.random() * canvas.height;
+                this.vx = (Math.random() - 0.5) * 0.4;
+                this.vy = (Math.random() - 0.5) * 0.4;
+                this.size = Math.random() * 2 + 0.5;
+                this.alpha = Math.random() * 0.4 + 0.1;
+                this.pulse = Math.random() * Math.PI * 2;
+                this.pulseSpeed = Math.random() * 0.02 + 0.005;
+            }
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.pulse += this.pulseSpeed;
+                if (this.x < 0 || this.x > canvas.width) this.vx *= -1;
+                if (this.y < 0 || this.y > canvas.height) this.vy *= -1;
+            }
+            draw() {
+                const a = this.alpha * (0.6 + 0.4 * Math.sin(this.pulse));
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(168, 85, 247, ${a})`;
+                ctx.fill();
+            }
         }
 
-        document.getElementById('themeToggle').addEventListener('click', () => {
-            root.classList.toggle('dark');
-            localStorage.setItem('easyproxy-theme', root.classList.contains('dark') ? 'dark' : 'light');
-        });
+        for (let i = 0; i < 100; i++) particles.push(new Particle());
 
-        function switchTab(tabName) {
-            document.querySelectorAll('.tab-panel').forEach(panel => panel.classList.add('hidden'));
-            document.querySelectorAll('.tab-button').forEach(button => {
-                button.classList.remove('tab-active');
-                button.classList.add('bg-white', 'dark:bg-slate-800', 'text-slate-700', 'dark:text-slate-300', 'shadow-md');
-            });
+        function animate() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            for (const p of particles) { p.update(); p.draw(); }
+            for (let i = 0; i < particles.length; i++) {
+                for (let j = i + 1; j < particles.length; j++) {
+                    const dx = particles[i].x - particles[j].x;
+                    const dy = particles[i].y - particles[j].y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    if (dist < 150) {
+                        ctx.beginPath();
+                        ctx.moveTo(particles[i].x, particles[i].y);
+                        ctx.lineTo(particles[j].x, particles[j].y);
+                        ctx.strokeStyle = `rgba(99, 102, 241, ${0.1 * (1 - dist / 150)})`;
+                        ctx.lineWidth = 0.5;
+                        ctx.stroke();
+                    }
+                }
+            }
+            requestAnimationFrame(animate);
+        }
+        animate();
 
-            document.getElementById(`panel-${tabName}`).classList.remove('hidden');
-            const activeButton = document.getElementById(`tab-${tabName}`);
-            activeButton.classList.add('tab-active');
-            activeButton.classList.remove('bg-white', 'dark:bg-slate-800', 'text-slate-700', 'dark:text-slate-300', 'shadow-md');
+        // Tab switching
+        const tabBtns = document.querySelectorAll('.tab-btn');
+        const tabPanels = {
+            proxy: document.getElementById('panel-proxy'),
+            extractor: document.getElementById('panel-extractor'),
+            batch: document.getElementById('panel-batch')
+        };
+
+        function switchTab(name) {
+            tabBtns.forEach(b => b.classList.remove('active'));
+            Object.values(tabPanels).forEach(p => p.classList.remove('active'));
+            document.querySelector(`.tab-btn[data-tab="${name}"]`).classList.add('active');
+            tabPanels[name].classList.add('active');
         }
 
-        document.querySelectorAll('.tab-button').forEach(button => {
-            button.addEventListener('click', () => switchTab(button.dataset.tab));
+        tabBtns.forEach(btn => {
+            btn.addEventListener('click', () => switchTab(btn.dataset.tab));
         });
 
-        document.getElementById('extractorHostSelect').addEventListener('change', (event) => {
-            if (event.target.value) {
-                document.getElementById('extractorHost').value = event.target.value;
+        // Extractor host select -> input
+        document.getElementById('extractorHostSelect').addEventListener('change', (e) => {
+            if (e.target.value) {
+                document.getElementById('extractorHost').value = e.target.value;
             }
         });
+
+        function buildBaseUrl() {
+            return window.location.protocol + '//' + window.location.host;
+        }
 
         function parseHeaders() {
             const raw = document.getElementById('requestHeaders').value.trim();
@@ -346,8 +797,31 @@
             return JSON.parse(raw);
         }
 
-        function buildBaseUrl() {
-            return `${window.location.protocol}//${window.location.host}`;
+        function renderUrlList(containerId, urls) {
+            const container = document.getElementById(containerId);
+            if (!urls || urls.length === 0) {
+                container.innerHTML = '';
+                return;
+            }
+            let html = '<ul class="generated-url-list">';
+            urls.forEach((url, i) => {
+                const escaped = url.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                html += `<li class="generated-url-item">
+                    <span class="url-index">${i + 1}</span>
+                    <span class="url-text">${escaped}</span>
+                    <button class="copy-mini-btn" data-url="${escaped.replace(/"/g, '&quot;')}">Copy</button>
+                </li>`;
+            });
+            html += '</ul>';
+            container.innerHTML = html;
+            container.querySelectorAll('.copy-mini-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    navigator.clipboard.writeText(btn.dataset.url);
+                    const orig = btn.textContent;
+                    btn.textContent = 'Copied!';
+                    setTimeout(() => { btn.textContent = orig; }, 1500);
+                });
+            });
         }
 
         async function generateProxyUrl() {
@@ -359,32 +833,28 @@
             const disableSSL = document.getElementById('proxyDisableSSL').checked;
             const forceNativeMpd = document.getElementById('proxyNativeMpd').checked;
             const result = document.getElementById('proxyResult');
-            if (forceNativeMpd) {
-                endpoint = '/proxy/mpd/manifest.mpd';
-            }
+
+            if (forceNativeMpd) endpoint = '/proxy/mpd/manifest.mpd';
 
             if (!destinationUrl) {
-                result.value = 'Inserisci una destination URL valida.';
+                result.value = 'Please enter a valid destination URL.';
+                document.getElementById('proxyUrlList').innerHTML = '';
                 return;
             }
 
             let payload = {
-                urls: [
-                    {
-                        destination_url: destinationUrl,
-                        endpoint: endpoint,
-                        request_headers: {},
-                        warp: bypassWarp ? "off" : "on",
-                        disable_ssl: disableSSL ? "1" : "0"
-                    }
-                ]
+                urls: [{
+                    destination_url: destinationUrl,
+                    endpoint: endpoint,
+                    request_headers: {},
+                    warp: bypassWarp ? 'off' : 'on',
+                    disable_ssl: disableSSL ? '1' : '0'
+                }]
             };
 
             try {
                 payload.urls[0].request_headers = parseHeaders();
-                if (apiPassword) {
-                    payload.api_password = apiPassword;
-                }
+                if (apiPassword) payload.api_password = apiPassword;
 
                 const response = await fetch('/generate_urls', {
                     method: 'POST',
@@ -395,6 +865,7 @@
                 const text = await response.text();
                 if (!response.ok) {
                     result.value = text;
+                    document.getElementById('proxyUrlList').innerHTML = '';
                     return;
                 }
 
@@ -411,7 +882,7 @@
                 }
                 result.value = urls.join('\n');
             } catch (error) {
-                result.value = `Errore: ${error.message}`;
+                result.value = 'Error: ' + error.message;
             }
         }
 
@@ -426,28 +897,21 @@
             const result = document.getElementById('extractorResult');
 
             if (!host || !url) {
-                result.value = 'Inserisci host e video URL.';
+                result.value = 'Please enter both host and video URL.';
+                document.getElementById('extractorUrlList').innerHTML = '';
                 return;
             }
 
             const params = new URLSearchParams();
             params.set('host', host);
             params.set('d', url);
-            if (redirectStream) {
-                params.set('redirect_stream', 'true');
-            }
-            if (bypassWarp) {
-                params.set('warp', 'off');
-            }
-            if (disableSSL) {
-                params.set('disable_ssl', '1');
-            }
-            if (apiPassword) {
-                params.set('api_password', apiPassword);
-            }
-            const extractorPath = `/extractor/video${extension}`;
+            if (redirectStream) params.set('redirect_stream', 'true');
+            if (bypassWarp) params.set('warp', 'off');
+            if (disableSSL) params.set('disable_ssl', '1');
+            if (apiPassword) params.set('api_password', apiPassword);
 
-            result.value = `${buildBaseUrl()}${extractorPath}?${params.toString()}`;
+            const generated = buildBaseUrl() + '/extractor/video' + extension + '?' + params.toString();
+            result.value = generated;
         }
 
         async function generateBatch() {
@@ -469,24 +933,53 @@
 
                 const text = await response.text();
                 result.value = text;
+
+                try {
+                    const data = JSON.parse(text);
+                    if (data.urls) {
+                        renderUrlList('batchUrlList', data.urls);
+                    } else {
+                        document.getElementById('batchUrlList').innerHTML = '';
+                    }
+                } catch {
+                    document.getElementById('batchUrlList').innerHTML = '';
+                }
             } catch (error) {
-                result.value = `Errore: ${error.message}`;
+                result.value = 'Error: ' + error.message;
+                document.getElementById('batchUrlList').innerHTML = '';
             }
         }
 
-        async function copyFrom(id) {
+        async function copyFrom(id, btn) {
             const value = document.getElementById(id).value;
             if (!value) return;
             await navigator.clipboard.writeText(value);
+            if (btn) {
+                const orig = btn.textContent;
+                btn.textContent = 'Copied!';
+                setTimeout(() => { btn.textContent = orig; }, 1500);
+            }
         }
 
         document.getElementById('generateProxy').addEventListener('click', generateProxyUrl);
         document.getElementById('generateExtractor').addEventListener('click', generateExtractorUrl);
         document.getElementById('generateBatch').addEventListener('click', generateBatch);
-        document.getElementById('copyProxyResult').addEventListener('click', () => copyFrom('proxyResult'));
-        document.getElementById('copyExtractorResult').addEventListener('click', () => copyFrom('extractorResult'));
-        document.getElementById('copyBatchResult').addEventListener('click', () => copyFrom('batchResult'));
+        document.getElementById('copyProxyResult').addEventListener('click', (e) => copyFrom('proxyResult', e.target));
+        document.getElementById('copyExtractorResult').addEventListener('click', (e) => copyFrom('extractorResult', e.target));
+        document.getElementById('copyBatchResult').addEventListener('click', (e) => copyFrom('batchResult', e.target));
     </script>
-</body>
 
+        <footer style="text-align:center;padding:3rem 1rem 2rem;border-top:1px solid var(--border-primary);margin-top:3rem">
+            <div style="display:flex;justify-content:center;gap:10px;flex-wrap:wrap;margin-bottom:1rem">
+                <div style="display:flex;align-items:center;gap:6px;font-size:0.75rem;color:var(--text-secondary);background:var(--surface-glass);padding:4px 14px;border-radius:20px;border:1px solid var(--border-primary)">v{{APP_VERSION}}</div>
+                <div style="display:flex;align-items:center;gap:6px;font-size:0.75rem;color:var(--text-secondary);background:var(--surface-glass);padding:4px 14px;border-radius:20px;border:1px solid var(--border-primary)">
+                    <span style="color:var(--accent-success);font-weight:600" class="{{VERSION_STATUS_CLASS}}">Latest: {{LATEST_VERSION}}</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:4px;padding:4px 14px;border-radius:20px;background:rgba(37,99,235,0.1);color:#3b82f6;font-weight:700;font-size:0.65rem;text-transform:uppercase;letter-spacing:0.5px;border:1px solid rgba(37,99,235,0.2)">
+                    <span style="width:6px;height:6px;border-radius:50%;background:currentColor;display:inline-block"></span> WARP: {{WARP_STATUS}}
+                </div>
+            </div>
+            <p style="color:var(--text-muted);font-size:0.7rem">&copy; EasyProxy</p>
+        </footer>
+</body>
 </html>

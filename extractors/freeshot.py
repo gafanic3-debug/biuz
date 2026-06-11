@@ -34,7 +34,7 @@ class FreeshotExtractor:
 
 
     async def _get_session(self, url: str = None):
-        proxy = get_preferred_proxy_for_url(url, "freeshot", self.proxies)
+        proxy = await get_preferred_proxy_for_url(url, "freeshot", self.proxies)
         if (
             self.session is None
             or self.session.closed

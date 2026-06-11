@@ -1,4 +1,31 @@
-from services.proxy_shared import *
+import asyncio
+import time
+import urllib.parse
+import aiohttp
+from services.proxy_shared import (
+    logger,
+    web,
+    check_password,
+    BYPASS_WARP_CONTEXT,
+    SELECTED_PROXY_CONTEXT,
+    STRICT_PROXY_CONTEXT,
+    ManifestRewriter,
+    check_vavoo_request,
+    should_use_short_captured_manifest_urls,
+    parse_clearkey_params,
+    MPD_MODE,
+    MPDToHLSConverter,
+    get_ssl_setting_for_url,
+    TRANSPORT_ROUTES,
+    AioProxyError,
+    PyProxyError,
+    ClientConnectionError,
+    ProxyDeadRetryError,
+    get_proxy_for_url,
+    GLOBAL_PROXIES,
+    is_expired_embed_error,
+    extractor_name_for_log,
+)
 
 
 class HLSProxyManifestHandlerMixin:
@@ -201,7 +228,10 @@ class HLSProxyManifestHandlerMixin:
 
                 # Fetch original manifest if not already captured
                 if not captured_manifest:
-                    async with self.session.get(stream_url, headers=stream_headers) as resp:
+                    mpd_session, _ = await self._get_proxy_session(
+                        stream_url, bypass_warp=bypass_warp, forced_proxy=selected_proxy
+                    )
+                    async with mpd_session.get(stream_url, headers=stream_headers, timeout=aiohttp.ClientTimeout(total=30)) as resp:
                         if resp.status != 200:
                             return web.Response(text=f"Failed to fetch original MPD: {resp.status}", status=resp.status)
                         captured_manifest = await resp.text()
@@ -211,7 +241,7 @@ class HLSProxyManifestHandlerMixin:
                 session_id = await self._create_dash_session(
                     stream_url.rsplit('/', 1)[0] + '/',
                     stream_headers,
-                    clearkey=request.query.get("clearkey") or f"{request.query.get('key_id')}:{request.query.get('key')}" if request.query.get('key_id') else None
+                    clearkey=parse_clearkey_params(request)
                 )
 
                 rewritten_mpd = ManifestRewriter.rewrite_mpd_native(
@@ -286,15 +316,7 @@ class HLSProxyManifestHandlerMixin:
                     original_channel_url,
                     request.query.get("host", ""),
                 )
-                is_vavoo_req = (
-                    "vavoo" in (request.query.get("h_Referer") or "").lower()
-                    or "vavoo" in (request.query.get("h_Origin") or "").lower()
-                    or "vavoo" in (combined_headers.get("Referer") or "").lower()
-                    or "vavoo" in (combined_headers.get("Origin") or "").lower()
-                    or "vavoo" in (request.headers.get("Referer") or "").lower()
-                    or "vavoo" in stream_url.lower()
-                    or any(x in stream_url.lower() for x in ["/sunshine/", "lokke", "mediahubmx"])
-                )
+                is_vavoo_req = check_vavoo_request(combined_headers, request, stream_url)
                 disable_ssl = request.query.get("disable_ssl") == "1" or force_disable_ssl or is_vavoo_req
 
                 async def shorten_captured_manifest_url(manifest_url: str) -> str:
@@ -375,48 +397,7 @@ class HLSProxyManifestHandlerMixin:
                         f"🔄 [FFmpeg Mode] Routing MPD stream: {stream_url}"
                     )
 
-                    # Extract ClearKey if present
-                    clearkey_param = request.query.get("clearkey")
-
-                    # Support separate key_id and key params (handling multiple keys)
-                    if not clearkey_param:
-                        key_id_param = request.query.get("key_id")
-                        key_val_param = request.query.get("key")
-
-                        if key_id_param and key_val_param:
-                            # Check for multiple keys
-                            key_ids = key_id_param.split(",")
-                            key_vals = key_val_param.split(",")
-
-                            if len(key_ids) == len(key_vals):
-                                clearkey_parts = []
-                                for kid, kval in zip(key_ids, key_vals):
-                                    clearkey_parts.append(
-                                        f"{kid.strip()}:{kval.strip()}"
-                                    )
-                                clearkey_param = ",".join(clearkey_parts)
-                            else:
-                                # Fallback or error? defaulting to first or simple concat if mismatch
-                                # Let's try to handle single mismatch case gracefully or just use as is
-                                if len(key_ids) == 1 and len(key_vals) == 1:
-                                    clearkey_param = (
-                                        f"{key_id_param}:{key_val_param}"
-                                    )
-                                else:
-                                    logger.warning(
-                                        f"Mismatch in key_id/key count: {len(key_ids)} vs {len(key_vals)}"
-                                    )
-                                    # Try to pair as many as possible
-                                    min_len = min(len(key_ids), len(key_vals))
-                                    clearkey_parts = []
-                                    for i in range(min_len):
-                                        clearkey_parts.append(
-                                            f"{key_ids[i].strip()}:{key_vals[i].strip()}"
-                                        )
-                                    clearkey_param = ",".join(clearkey_parts)
-
-                        elif key_val_param:
-                            clearkey_param = key_val_param
+                    clearkey_param = parse_clearkey_params(request)
 
                     playlist_rel_path = await self.ffmpeg_manager.get_stream(
                         stream_url, stream_headers, clearkey=clearkey_param
@@ -573,43 +554,7 @@ class HLSProxyManifestHandlerMixin:
                     if api_password:
                         params += f"&api_password={api_password}"
 
-                    # Get ClearKey param
-                    clearkey_param = request.query.get("clearkey")
-                    if not clearkey_param:
-                        key_id_param = request.query.get("key_id")
-                        key_val_param = request.query.get("key")
-
-                        if key_id_param and key_val_param:
-                            # Check for multiple keys
-                            key_ids = key_id_param.split(",")
-                            key_vals = key_val_param.split(",")
-
-                            if len(key_ids) == len(key_vals):
-                                clearkey_parts = []
-                                for kid, kval in zip(key_ids, key_vals):
-                                    clearkey_parts.append(
-                                        f"{kid.strip()}:{kval.strip()}"
-                                    )
-                                clearkey_param = ",".join(clearkey_parts)
-                            else:
-                                if len(key_ids) == 1 and len(key_vals) == 1:
-                                    clearkey_param = (
-                                        f"{key_id_param}:{key_val_param}"
-                                    )
-                                else:
-                                    logger.warning(
-                                        f"Mismatch in key_id/key count: {len(key_ids)} vs {len(key_vals)}"
-                                    )
-                                    # Try to pair as many as possible
-                                    min_len = min(len(key_ids), len(key_vals))
-                                    clearkey_parts = []
-                                    for i in range(min_len):
-                                        clearkey_parts.append(
-                                            f"{key_ids[i].strip()}:{key_vals[i].strip()}"
-                                        )
-                                    clearkey_param = ",".join(clearkey_parts)
-                        elif key_val_param:
-                            clearkey_param = key_val_param
+                    clearkey_param = parse_clearkey_params(request)
 
                     if clearkey_param:
                         params += f"&clearkey={clearkey_param}"
@@ -653,97 +598,75 @@ class HLSProxyManifestHandlerMixin:
             # Procedi con il proxy dello stream (passando l'eventuale bypass_warp attivato dall'estrattore e il proxy selezionato)
             return await self._proxy_stream(request, stream_url, stream_headers, bypass_warp=bypass_warp, forced_proxy=selected_proxy, force_direct=force_direct)
 
-        except Exception as e:
-            error_msg = str(e).lower()
-
-            # Retry extraction once if proxy died during playlist fetch
-            if "proxy_dead_retry_extraction" in error_msg and not getattr(request, '_extraction_retried', False):
+        except ProxyDeadRetryError:
+            if getattr(request, '_extraction_retried', False):
+                logger.warning("Re-extraction already attempted for %s, not retrying again", target_url)
+                raise
+            else:
                 request._extraction_retried = True
                 extraction_url = request.query.get("orig_url") or target_url
-                logger.warning("⚠️ Proxy died during playlist fetch, re-extracting %s (orig URL: %s)", target_url, extraction_url)
+                logger.warning("Proxy died during playlist fetch, re-extracting %s (orig URL: %s)", target_url, extraction_url)
                 try:
                     extractor2 = await self.get_extractor(extraction_url, combined_headers, bypass_warp=bypass_warp)
-                    if extractor2:
-                        extractor2.request_headers = combined_headers
-                        result2 = await extractor2.extract(
-                            extraction_url,
-                            force_refresh=True,
-                            request_headers=combined_headers,
-                            bypass_warp=bypass_warp,
-                            proxy=selected_proxy,
+                    if not extractor2:
+                        logger.warning("No extractor found for %s during re-extraction", extraction_url)
+                        return web.Response(text="Re-extraction failed: no extractor found", status=502)
+                    extractor2.request_headers = combined_headers
+                    result2 = await extractor2.extract(
+                        extraction_url, force_refresh=True,
+                        request_headers=combined_headers, bypass_warp=bypass_warp,
+                        proxy=None,
+                    )
+                    stream_url2 = result2["destination_url"]
+                    stream_headers2 = result2.get("request_headers", {})
+                    selected_proxy2 = result2.get("selected_proxy")
+                    if not selected_proxy2 and extractor2:
+                        selected_proxy2 = (
+                            getattr(extractor2, "last_used_proxy", None)
+                            or getattr(extractor2, "selected_proxy", None)
+                            or getattr(extractor2, "_session_proxy", None)
+                            or getattr(extractor2, "session_proxy", None)
                         )
-                        stream_url2 = result2["destination_url"]
-                        stream_headers2 = result2.get("request_headers", {})
-                        selected_proxy2 = result2.get("selected_proxy")
-                        if not selected_proxy2 and extractor2:
-                            selected_proxy2 = (
-                                getattr(extractor2, "last_used_proxy", None)
-                                or getattr(extractor2, "selected_proxy", None)
-                                or getattr(extractor2, "_session_proxy", None)
-                                or getattr(extractor2, "session_proxy", None)
-                            )
-                        force_direct2 = result2.get("force_direct", force_direct)
-
-                        original_proxy = request.query.get("proxy")
-                        if original_proxy:
+                    force_direct2 = result2.get("force_direct", force_direct)
+                    original_proxy = request.query.get("proxy")
+                    if original_proxy:
+                        original_proxy = urllib.parse.unquote(original_proxy)
+                        if "://" not in original_proxy and "%3a" in original_proxy.lower():
                             original_proxy = urllib.parse.unquote(original_proxy)
-                            if "://" not in original_proxy and "%3a" in original_proxy.lower():
-                                original_proxy = urllib.parse.unquote(original_proxy)
-
-                        # If the extractor didn't return a specific proxy, try to rotate or get a new one
-                        if not selected_proxy2 and original_proxy:
-                            new_proxy = get_proxy_for_url(stream_url2, TRANSPORT_ROUTES, GLOBAL_PROXIES, bypass_warp=bypass_warp)
-                            if new_proxy and new_proxy != original_proxy:
-                                logger.info("Rotating to a new proxy for re-extracted stream: %s", new_proxy)
-                                selected_proxy2 = new_proxy
-                            else:
-                                logger.info("No alternative proxy found for re-extracted stream; keeping configured proxy strict.")
-                                selected_proxy2 = original_proxy
-                                force_direct2 = False
-
-                        logger.info("Re-extraction success: %s", stream_url2[:80])
-                        return await self._proxy_stream(request, stream_url2, stream_headers2, bypass_warp=bypass_warp, forced_proxy=selected_proxy2, force_direct=force_direct2)
+                    if not selected_proxy2 and original_proxy:
+                        new_proxy = get_proxy_for_url(stream_url2, TRANSPORT_ROUTES, GLOBAL_PROXIES, bypass_warp=bypass_warp)
+                        if new_proxy and new_proxy != original_proxy:
+                            logger.info("Rotating to new proxy: %s", new_proxy)
+                            selected_proxy2 = new_proxy
+                        else:
+                            selected_proxy2 = original_proxy
+                            force_direct2 = False
+                    logger.info("Re-extraction success: %s", stream_url2[:80])
+                    return await self._proxy_stream(request, stream_url2, stream_headers2, bypass_warp=bypass_warp, forced_proxy=selected_proxy2, force_direct=force_direct2)
                 except Exception as retry_err:
                     logger.error("Re-extraction failed: %s", retry_err)
+                    return web.Response(text="Re-extraction failed", status=502)
 
-            # ✅ MIGLIORATO: Distingui tra errori temporanei (sito offline) ed errori critici
+        except Exception as e:
+            error_msg = str(e).lower()
             is_expired_embed = is_expired_embed_error(error_msg)
             is_not_found = "404" in error_msg or "not found" in error_msg
             is_temporary_error = any(
                 x in error_msg
-                for x in [
-                    "403",
-                    "forbidden",
-                    "502",
-                    "bad gateway",
-                    "timeout",
-                    "connection",
-                    "temporarily unavailable",
-                ]
+                for x in ["403", "forbidden", "502", "bad gateway", "timeout", "connection", "temporarily unavailable"]
             )
-
             extractor_name = extractor_name_for_log(extractor)
 
             if is_expired_embed:
                 logger.info("Expired VixSrc embed URL rejected: %s", str(e))
                 return web.Response(text=str(e), status=410)
-
             if is_not_found:
-                logger.warning(f"🔍 {extractor_name}: Content not found (404). File missing or possible IP block. (Try opening the link in a browser to verify) - {str(e)}")
+                logger.warning(f"🔍 {extractor_name}: Content not found (404) - {str(e)}")
                 return web.Response(text=f"Content not found: {str(e)}", status=404)
-
-            # Gestione errori di connessione o blocchi
             if is_temporary_error:
-                if "403" in error_msg or "forbidden" in error_msg:
-                    logger.error(f"🚫 {extractor_name}: Access denied (403 Forbidden). Possible IP block or WAF protection. - {str(e)}")
-                else:
-                    logger.warning(f"📡 {extractor_name}: Connection failed (Timeout/Connection Error). Site might be down or IP is blocked. - {str(e)}")
+                logger.warning(f"📡 {extractor_name}: Service temporarily unavailable - {str(e)}")
+                return web.Response(text=f"Service temporarily unavailable: {str(e)}", status=503)
 
-                return web.Response(
-                    text=f"Service temporarily unavailable: {str(e)}", status=503
-                )
-
-            # Per errori veri (non temporanei), logga come CRITICAL con traceback completo
             logger.critical(f"❌ Critical error with {extractor_name}: {e}")
             logger.exception(f"Error in proxy request: {str(e)}")
             return web.Response(text=f"Proxy error: {str(e)}", status=500)

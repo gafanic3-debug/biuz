@@ -87,7 +87,7 @@ class MixdropExtractor:
                 return result
 
         logger.info(f"🔍 [Cache Miss] Extracting new link for: {normalized_url}")
-        proxy = get_preferred_proxy_for_url(normalized_url, "mixdrop", self.proxies, self.bypass_warp_active)
+        proxy = await get_preferred_proxy_for_url(normalized_url, "mixdrop", self.proxies, self.bypass_warp_active)
         try:
             ua, cookies = self.base_headers.get("User-Agent"), {}
             if "/f/" in url: url = url.replace("/f/", "/e/")
@@ -111,7 +111,7 @@ class MixdropExtractor:
                 if depth > 3: return None
                 try:
                     m_headers = self._step_headers(ua, current_url)
-                    pref_p = get_preferred_proxy_for_url(current_url, "mixdrop", self.proxies, self.bypass_warp_active)
+                    pref_p = await get_preferred_proxy_for_url(current_url, "mixdrop", self.proxies, self.bypass_warp_active)
                     cs_proxies = _build_cs_proxies(pref_p)
                     
                     async def fetch_page():
@@ -127,7 +127,9 @@ class MixdropExtractor:
                                 t = resp.text
                                 if not any(m in t.lower() for m in ["cf-challenge", "robot", "checking your browser"]):
                                     return t, str(resp.url), ua, dict(resp.cookies)
-                        except: pass
+                        except Exception as e:
+                            logger.debug("Mixdrop fetch_page attempt failed: %s", e)
+                            pass
                         return None
 
                     async def _process_result(res):
@@ -166,7 +168,9 @@ class MixdropExtractor:
                     result = await _process_result(direct_res)
                     if result:
                         return result
-                except: pass
+                except Exception as e:
+                    logger.debug("Mixdrop mirror attempt failed: %s", e)
+                    pass
                 return None
 
             mirror_tasks = [asyncio.create_task(solve_url(m)) for m in mirrors]

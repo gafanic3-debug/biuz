@@ -97,7 +97,7 @@ class GenericHLSExtractor(BaseExtractor):
         if "accept-language" not in headers:
             headers["accept-language"] = "de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7,it;q=0.6,fr;q=0.5"
         if "accept-encoding" not in headers:
-            headers["accept-encoding"] = "gzip, deflate, br, zstd"
+            headers["accept-encoding"] = "gzip, deflate, br"
 
         return {
             "destination_url": str(yarl.URL(url, encoded=True)), 

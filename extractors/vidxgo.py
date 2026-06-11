@@ -72,6 +72,7 @@ class VidXgoExtractor:
         self.session = None
         self.mediaflow_endpoint = "hls_proxy"
         self._result_cache = {}
+        self._cached_log_ts = 0
 
         # Headers used for fetching the embed page.
         # NOTE: the host enforces presence of Sec-Fetch-* headers; without them
@@ -202,7 +203,7 @@ class VidXgoExtractor:
         playback_headers = {
             **self.playback_headers,
             "referer": f"{vd_domain}/",
-            "origin": vd_domain,
+"origin": vd_domain,
         }
 
         cache_key = (url, vd_domain, kwargs.get("proxy") or "")
@@ -212,7 +213,9 @@ class VidXgoExtractor:
             # Background refresh can be triggered by many segment requests at once.
             # Reuse a very recent extraction to avoid token/host churn and load spikes.
             if time.time() - cached_ts < 45 and (background_refresh or not force_refresh):
-                logger.debug("vidxgo: using recent cached m3u8 for %s", url)
+                if time.time() - self._cached_log_ts > 45:
+                    self._cached_log_ts = time.time()
+                    logger.debug("vidxgo: using cached m3u8 for %s", url)
                 return dict(cached_result)
 
         # 1. Fetch embed page.

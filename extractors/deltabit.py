@@ -12,6 +12,7 @@ from config import (
     FLARESOLVERR_URL, 
     FLARESOLVERR_TIMEOUT, 
     get_solver_proxy_url, 
+    build_proxy_with_auth,
     GLOBAL_PROXIES,
     get_connector_for_proxy,
     get_preferred_proxy_for_url,
@@ -78,9 +79,11 @@ class DeltabitExtractor:
         fs_headers = {}
         if url: 
             payload["url"] = url
-            proxy = get_preferred_proxy_for_url(url, "deltabit", self.proxies, self.bypass_warp_active)
+            proxy = await get_preferred_proxy_for_url(url, "deltabit", self.proxies, self.bypass_warp_active)
             if proxy:
-                payload["proxy"] = {"url": proxy}
+                p = build_proxy_with_auth(proxy)
+                if p:
+                    payload["proxy"] = p
                 fs_headers["X-Proxy-Server"] = get_solver_proxy_url(proxy)
         if post_data: payload["postData"] = post_data
         if session_id: payload["session"] = session_id
@@ -108,7 +111,7 @@ class DeltabitExtractor:
                 return res
         
         logger.info(f"🔍 [Cache Miss] Extracting new link for: {normalized_url}")
-        proxy = get_preferred_proxy_for_url(normalized_url, "deltabit", self.proxies, self.bypass_warp_active)
+        proxy = await get_preferred_proxy_for_url(normalized_url, "deltabit", self.proxies, self.bypass_warp_active)
         final_session_id = await solver_manager.get_persistent_session("deltabit", proxy)
         session_id = final_session_id
         is_persistent = True # Always persistent for this key
@@ -131,10 +134,12 @@ class DeltabitExtractor:
                                     t = await r.text()
                                     if not any(m in t.lower() for m in ["cf-challenge", "robot", "checking your browser"]):
                                         return t, str(r.url), ua, {k: v.value for k, v in r.cookies.items()}
-                except: pass
+                except Exception as e:
+                    logger.debug("Deltabit fetch attempt failed: %s", e)
+                    pass
                 return None
 
-            pref_p = get_preferred_proxy_for_url(url, "deltabit", self.proxies, self.bypass_warp_active)
+            pref_p = await get_preferred_proxy_for_url(url, "deltabit", self.proxies, self.bypass_warp_active)
             html = None
             attempts = []
             if pref_p:

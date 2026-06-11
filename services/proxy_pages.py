@@ -1,4 +1,11 @@
-from services.proxy_shared import *
+import os
+import urllib.parse
+from services.proxy_shared import (
+    logger, web, ENABLE_WARP, WARP_PROXY_URL, APP_VERSION, VERSION_MODE,
+    check_password, PlaylistBuilder, ClientSession, ClientTimeout,
+    TCPConnector, ProxyConnector, get_connector_for_proxy, API_PASSWORD,
+    GLOBAL_PROXIES,
+)
 
 class HLSProxyPagesMixin:
 
@@ -64,13 +71,14 @@ class HLSProxyPagesMixin:
             return web.Response(text=f"Error: {str(e)}", status=500)
 
     def _read_template(self, filename: str) -> str:
-        """Funzione helper per leggere un file di template."""
-        # Nota: assume che i template siano nella directory 'templates' nella root del progetto
-        # Poiché siamo in services/, dobbiamo salire di un livello
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        template_path = os.path.join(base_dir, "templates", filename)
+        """Funzione helper per leggere un file di template con caching."""
+        if filename in self._template_cache:
+            return self._template_cache[filename]
+        template_path = os.path.join(self._template_cache_dir, filename)
         with open(template_path, "r", encoding="utf-8") as f:
-            return f.read()
+            content = f.read()
+        self._template_cache[filename] = content
+        return content
 
     async def handle_root(self, request):
         """Serve la pagina principale index.html."""
@@ -88,6 +96,7 @@ class HLSProxyPagesMixin:
             html_content = html_content.replace("{{APP_VERSION}}", APP_VERSION)
             html_content = html_content.replace("{{LATEST_VERSION}}", self.latest_version)
             html_content = html_content.replace("{{VERSION_STATUS_CLASS}}", version_status_class)
+            self.warp_status = await self.get_warp_status()
             html_content = html_content.replace("{{WARP_STATUS}}", self.warp_status)
             return web.Response(text=html_content, content_type="text/html")
         except Exception as e:
@@ -128,6 +137,13 @@ class HLSProxyPagesMixin:
         """Serve la pagina web per generare URL proxy ed extractor."""
         try:
             html_content = self._read_template("url_generator.html")
+            is_outdated = self.latest_version not in ["Checking...", "Unknown", "Error", APP_VERSION]
+            version_status_class = "outdated" if is_outdated else ""
+            html_content = html_content.replace("{{APP_VERSION}}", APP_VERSION)
+            html_content = html_content.replace("{{LATEST_VERSION}}", self.latest_version)
+            html_content = html_content.replace("{{VERSION_STATUS_CLASS}}", version_status_class)
+            self.warp_status = await self.get_warp_status()
+            html_content = html_content.replace("{{WARP_STATUS}}", self.warp_status)
             return web.Response(text=html_content, content_type="text/html")
         except Exception as e:
             logger.error(f"Unable to load 'url_generator.html': {e}")
@@ -141,6 +157,13 @@ class HLSProxyPagesMixin:
         """Gestisce l'interfaccia web del playlist builder."""
         try:
             html_content = self._read_template("builder.html")
+            is_outdated = self.latest_version not in ["Checking...", "Unknown", "Error", APP_VERSION]
+            version_status_class = "outdated" if is_outdated else ""
+            html_content = html_content.replace("{{APP_VERSION}}", APP_VERSION)
+            html_content = html_content.replace("{{LATEST_VERSION}}", self.latest_version)
+            html_content = html_content.replace("{{VERSION_STATUS_CLASS}}", version_status_class)
+            self.warp_status = await self.get_warp_status()
+            html_content = html_content.replace("{{WARP_STATUS}}", self.warp_status)
             return web.Response(text=html_content, content_type="text/html")
         except Exception as e:
             logger.error(f"❌ Critical error: unable to load 'builder.html': {e}")
@@ -166,6 +189,7 @@ class HLSProxyPagesMixin:
             html_content = html_content.replace("{{APP_VERSION}}", APP_VERSION)
             html_content = html_content.replace("{{LATEST_VERSION}}", self.latest_version)
             html_content = html_content.replace("{{VERSION_STATUS_CLASS}}", version_status_class)
+            self.warp_status = await self.get_warp_status()
             html_content = html_content.replace("{{WARP_STATUS}}", self.warp_status)
             return web.Response(text=html_content, content_type="text/html")
         except Exception as e:
@@ -200,7 +224,7 @@ class HLSProxyPagesMixin:
         await self._refresh_latest_version()
 
         info = {
-            "proxy": "HLS Proxy Server",
+            "proxy": "EasyProxy",
             "version": APP_VERSION,  # Aggiornata per supporto AES-128
             "mode": VERSION_MODE,
             "status": "✅ Running",
@@ -574,7 +598,7 @@ class HLSProxyPagesMixin:
 
             # Crea una sessione dedicata con il proxy configurato
             if proxy:
-                logger.info(f"🌍 Checking IP via proxy: {proxy}")
+                logger.info(f"[NET] Checking IP via proxy: {proxy}")
                 connector = ProxyConnector.from_url(proxy)
             else:
                 connector = TCPConnector()

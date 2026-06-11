@@ -4,289 +4,365 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>HLS Proxy - Playlist Builder</title>
+    <title>EasyProxy - Playlist Builder</title>
     <link rel="icon" type="image/x-icon" href="/favicon.ico">
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
 
         :root {
-            /* Dark Theme Colors */
-            --bg-primary: #0f0f23;
-            --bg-secondary: #1a1a2e;
-            --bg-tertiary: #16213e;
-            --bg-card: rgba(26, 26, 46, 0.8);
-            --surface: rgba(255, 255, 255, 0.05);
-            --surface-glass: rgba(255, 255, 255, 0.08);
-            --surface-elevated: rgba(255, 255, 255, 0.12);
-
-            /* Modern Dark Gradients */
-            --primary-gradient: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+            --bg-primary: #09090f;
+            --bg-secondary: #111119;
+            --bg-tertiary: #1a1a28;
+            --surface: rgba(255, 255, 255, 0.03);
+            --surface-glass: rgba(255, 255, 255, 0.06);
+            --surface-elevated: rgba(255, 255, 255, 0.1);
+            --primary-gradient: linear-gradient(135deg, #6366f1 0%, #a855f7 50%, #ec4899 100%);
             --secondary-gradient: linear-gradient(135deg, #06b6d4 0%, #3b82f6 100%);
-            --accent-gradient: linear-gradient(135deg, #f59e0b 0%, #f97316 100%);
-            --success-gradient: linear-gradient(135deg, #10b981 0%, #059669 100%);
-            --danger-gradient: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-            --neon-gradient: linear-gradient(90deg, #00f5ff, #bf00ff, #ffff00, #bf00ff, #00f5ff);
-
-            /* Accent Colors */
+            --accent-gradient: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            --neon-gradient: linear-gradient(90deg, #06b6d4, #a855f7, #ec4899, #a855f7, #06b6d4);
             --accent-primary: #6366f1;
-            --accent-secondary: #8b5cf6;
+            --accent-secondary: #a855f7;
             --accent-success: #10b981;
             --accent-warning: #f59e0b;
             --accent-error: #ef4444;
             --accent-info: #06b6d4;
-            --neon-blue: #00f5ff;
-            --neon-purple: #bf00ff;
             --neon-green: #39ff14;
-
-            /* Text Colors */
             --text-primary: #ffffff;
             --text-secondary: #a1a1aa;
-            --text-muted: #71717a;
+            --text-muted: #6b6b80;
             --text-accent: #e4e4e7;
-            --text-inverse: #0f0f23;
-
-            /* Input & Form Colors */
-            --input-bg: rgba(255, 255, 255, 0.05);
-            --input-border: rgba(255, 255, 255, 0.1);
-            --input-border-focus: rgba(99, 102, 241, 0.5);
-            --input-placeholder: #71717a;
-
-            /* Border & Shadow */
-            --border-primary: rgba(255, 255, 255, 0.1);
-            --border-accent: rgba(255, 255, 255, 0.2);
-            --glow-primary: 0 0 20px rgba(99, 102, 241, 0.3);
-            --glow-secondary: 0 0 30px rgba(139, 92, 246, 0.4);
-            --glow-success: 0 0 20px rgba(16, 185, 129, 0.4);
-            --glow-neon: 0 0 40px rgba(0, 245, 255, 0.6);
-            --shadow-dark: 0 25px 50px -12px rgba(0, 0, 0, 0.8);
-            --shadow-card: 0 8px 32px rgba(0, 0, 0, 0.3);
-
-            /* Animation */
+            --border-primary: rgba(255, 255, 255, 0.08);
+            --border-accent: rgba(255, 255, 255, 0.15);
+            --glow-primary: 0 0 30px rgba(99, 102, 241, 0.25);
+            --glow-secondary: 0 0 40px rgba(168, 85, 247, 0.3);
+            --glow-success: 0 0 30px rgba(16, 185, 129, 0.25);
+            --shadow-dark: 0 25px 60px -15px rgba(0, 0, 0, 0.8);
+            --shadow-glow: 0 0 80px rgba(99, 102, 241, 0.1);
             --transition-fast: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
             --transition-normal: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
             --transition-slow: all 0.6s cubic-bezier(0.4, 0, 0.2, 1);
-
-            /* Measurements */
-            --border-radius: 12px;
-            --border-radius-large: 20px;
-            --spacing-xs: 0.25rem;
-            --spacing-sm: 0.5rem;
-            --spacing-md: 1rem;
-            --spacing-lg: 1.5rem;
-            --spacing-xl: 2rem;
-            --spacing-2xl: 3rem;
+            --border-radius: 16px;
+            --border-radius-large: 24px;
         }
 
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
 
         body {
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
             background: var(--bg-primary);
             color: var(--text-primary);
             min-height: 100vh;
             overflow-x: hidden;
-            position: relative;
         }
 
-        /* Animated Background */
-        body::before {
-            content: '';
+        #particles-canvas {
             position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background:
-                radial-gradient(circle at 20% 50%, rgba(99, 102, 241, 0.15) 0%, transparent 50%),
-                radial-gradient(circle at 80% 20%, rgba(139, 92, 246, 0.15) 0%, transparent 50%),
-                radial-gradient(circle at 40% 80%, rgba(6, 182, 212, 0.15) 0%, transparent 50%);
-            animation: backgroundFloat 25s ease-in-out infinite;
-            z-index: -1;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            z-index: 0;
+            pointer-events: none;
         }
 
-        @keyframes backgroundFloat {
+        .bg-glow {
+            position: fixed;
+            top: -40%; left: -20%;
+            width: 140%; height: 140%;
+            background:
+                radial-gradient(ellipse at 20% 50%, rgba(99, 102, 241, 0.12) 0%, transparent 50%),
+                radial-gradient(ellipse at 80% 20%, rgba(168, 85, 247, 0.1) 0%, transparent 50%),
+                radial-gradient(ellipse at 50% 80%, rgba(6, 182, 212, 0.08) 0%, transparent 50%);
+            animation: bgFloat 30s ease-in-out infinite;
+            z-index: 0;
+            pointer-events: none;
+        }
 
-            0%,
-            100% {
-                transform: translateY(0) rotate(0deg) scale(1);
-            }
-
-            33% {
-                transform: translateY(-20px) rotate(1deg) scale(1.02);
-            }
-
-            66% {
-                transform: translateY(20px) rotate(-1deg) scale(0.98);
-            }
+        @keyframes bgFloat {
+            0%, 100% { transform: translateY(0) scale(1); }
+            33% { transform: translateY(-20px) scale(1.02); }
+            66% { transform: translateY(20px) scale(0.98); }
         }
 
         .container {
-            max-width: 1400px;
+            max-width: 1200px;
             margin: 0 auto;
-            padding: var(--spacing-lg);
+            padding: 2rem 1.5rem;
+            display: flex;
+            flex-direction: column;
             min-height: 100vh;
+            position: relative;
+            z-index: 1;
         }
 
-        .header {
-            text-align: center;
-            margin-bottom: var(--spacing-2xl);
-            padding: var(--spacing-xl) 0;
+        .nav-bar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 2rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid var(--border-primary);
         }
 
-        .main-title {
-            font-size: clamp(2rem, 5vw, 3.5rem);
+        .back-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 0.9rem;
+            font-weight: 500;
+            transition: var(--transition-normal);
+            padding: 8px 16px;
+            border-radius: var(--border-radius);
+            background: var(--surface-glass);
+            border: 1px solid var(--border-primary);
+        }
+
+        .back-link:hover {
+            color: var(--text-primary);
+            border-color: var(--border-accent);
+            background: var(--surface-elevated);
+            transform: translateX(-4px);
+        }
+
+        .version-info-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .version-chip {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            background: var(--surface-glass);
+            padding: 4px 14px;
+            border-radius: 20px;
+            border: 1px solid var(--border-primary);
+        }
+
+        .version-latest {
+            color: var(--accent-success);
+            font-weight: 600;
+        }
+
+        .version-latest.outdated {
+            color: var(--accent-error);
+            animation: errPulse 2s infinite;
+        }
+
+        @keyframes errPulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.6; }
+        }
+
+        .warp-chip {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            padding: 4px 14px;
+            border-radius: 20px;
+            background: rgba(37, 99, 235, 0.1);
+            color: #3b82f6;
             font-weight: 700;
+            font-size: 0.65rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border: 1px solid rgba(37, 99, 235, 0.2);
+        }
+
+        .warp-chip::before {
+            content: "";
+            width: 6px; height: 6px;
+            border-radius: 50%;
+            background: currentColor;
+        }
+
+        .page-title {
+            font-size: clamp(2rem, 5vw, 3.5rem);
+            font-weight: 900;
+            letter-spacing: -0.03em;
+            line-height: 1.1;
+            margin-bottom: 0.5rem;
             background: var(--neon-gradient);
             background-size: 300% 300%;
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
-            margin-bottom: var(--spacing-md);
             animation: gradientShift 4s ease-in-out infinite;
         }
 
         @keyframes gradientShift {
-
-            0%,
-            100% {
-                background-position: 0% 50%;
-            }
-
-            50% {
-                background-position: 100% 50%;
-            }
+            0%, 100% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
         }
 
-        .main-subtitle {
-            font-size: 1.125rem;
+        .page-subtitle {
             color: var(--text-secondary);
-            font-weight: 400;
-            max-width: 800px;
-            margin: 0 auto;
+            font-size: 1rem;
             line-height: 1.6;
+            max-width: 600px;
+        }
+
+        .features-strip {
+            display: flex;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+            margin: 1.5rem 0;
+        }
+
+        .feature-pill {
+            padding: 6px 16px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 500;
+            background: var(--surface-glass);
+            border: 1px solid var(--border-primary);
+            color: var(--text-secondary);
+            transition: var(--transition-normal);
+            backdrop-filter: blur(10px);
+        }
+
+        .feature-pill:hover {
+            background: var(--surface-elevated);
+            color: var(--text-primary);
+            border-color: var(--border-accent);
+            transform: translateY(-2px);
         }
 
         .main-content {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: var(--spacing-2xl);
+            gap: 1.5rem;
             align-items: start;
+            margin-top: 1rem;
         }
 
-        .left-panel,
-        .right-panel {
-            background: var(--bg-card);
+        .card {
+            background: var(--surface-glass);
             border: 1px solid var(--border-primary);
             border-radius: var(--border-radius-large);
-            padding: var(--spacing-xl);
+            padding: 2rem;
             backdrop-filter: blur(20px);
-            box-shadow: var(--shadow-card);
             transition: var(--transition-normal);
+            position: relative;
+            overflow: hidden;
         }
 
-        .left-panel:hover,
-        .right-panel:hover {
+        .card::after {
+            content: '';
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 2px;
+            background: var(--primary-gradient);
+            transform: scaleX(0);
+            transition: var(--transition-normal);
+            transform-origin: left;
+        }
+
+        .card:hover {
             border-color: var(--border-accent);
-            box-shadow: var(--shadow-card), var(--glow-primary);
+            box-shadow: var(--glow-primary), var(--shadow-dark);
         }
 
-        .section-title {
-            font-size: 1.5rem;
+        .card:hover::after {
+            transform: scaleX(1);
+        }
+
+        .card-title {
+            font-size: 1.2rem;
             font-weight: 600;
-            margin-bottom: var(--spacing-lg);
-            color: var(--text-primary);
+            margin-bottom: 1.5rem;
             display: flex;
             align-items: center;
-            gap: var(--spacing-sm);
+            gap: 10px;
+            color: var(--text-primary);
         }
 
-        .section-icon {
-            padding: var(--spacing-sm);
-            border-radius: var(--spacing-sm);
-            background: var(--primary-gradient);
-            font-size: 1rem;
+        .card-title-icon {
+            width: 40px; height: 40px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.1rem;
+            background: var(--surface-elevated);
+            border: 1px solid var(--border-primary);
         }
 
         .form-group {
-            margin-bottom: var(--spacing-lg);
+            margin-bottom: 1.25rem;
         }
 
         .form-label {
             display: block;
-            font-weight: 500;
-            margin-bottom: var(--spacing-sm);
+            font-size: 0.8rem;
+            font-weight: 600;
             color: var(--text-secondary);
-            font-size: 0.9rem;
             text-transform: uppercase;
             letter-spacing: 0.05em;
+            margin-bottom: 0.5rem;
         }
 
-        .input-group {
-            position: relative;
+        .input-row {
             display: flex;
-            gap: var(--spacing-sm);
+            gap: 0.5rem;
         }
 
         .form-input {
             flex: 1;
-            padding: var(--spacing-md);
-            background: var(--input-bg);
-            border: 1px solid var(--input-border);
+            padding: 0.75rem 1rem;
+            background: var(--surface);
+            border: 1px solid var(--border-primary);
             border-radius: var(--border-radius);
             color: var(--text-primary);
-            font-size: 1rem;
+            font-size: 0.9rem;
+            font-family: 'Inter', sans-serif;
             transition: var(--transition-normal);
             backdrop-filter: blur(10px);
         }
 
         .form-input:focus {
             outline: none;
-            border-color: var(--input-border-focus);
+            border-color: var(--accent-primary);
             box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1), var(--glow-primary);
             background: var(--surface-elevated);
         }
 
         .form-input::placeholder {
-            color: var(--input-placeholder);
+            color: var(--text-muted);
         }
 
         .btn {
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            gap: var(--spacing-sm);
-            padding: var(--spacing-md) var(--spacing-lg);
+            gap: 8px;
+            padding: 0.75rem 1.5rem;
             border: none;
             border-radius: var(--border-radius);
-            font-weight: 500;
-            font-size: 0.95rem;
+            font-weight: 600;
+            font-size: 0.9rem;
             cursor: pointer;
             transition: var(--transition-normal);
             position: relative;
             overflow: hidden;
             text-decoration: none;
-            min-width: 120px;
+            font-family: 'Inter', sans-serif;
         }
 
         .btn::before {
             content: '';
             position: absolute;
-            top: 0;
-            left: -100%;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
-            transition: var(--transition-fast);
+            top: 0; left: -100%;
+            width: 100%; height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent);
+            transition: var(--transition-normal);
         }
 
-        .btn:hover::before {
-            left: 100%;
-        }
+        .btn:hover::before { left: 100%; }
 
         .btn-primary {
             background: var(--primary-gradient);
@@ -299,15 +375,15 @@
             box-shadow: var(--glow-secondary);
         }
 
-        .btn-success {
-            background: var(--success-gradient);
-            color: white;
-            box-shadow: var(--glow-success);
+        .btn-primary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
         }
 
-        .btn-success:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 0 30px rgba(16, 185, 129, 0.5);
+        .btn-primary:disabled:hover {
+            transform: none;
+            box-shadow: var(--glow-primary);
         }
 
         .btn-secondary {
@@ -318,575 +394,680 @@
         }
 
         .btn-secondary:hover {
+            transform: translateY(-2px);
             background: var(--surface-elevated);
             border-color: var(--border-accent);
+        }
+
+        .btn-secondary:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn-secondary:disabled:hover {
+            background: var(--surface-glass);
+            border-color: var(--border-primary);
+        }
+
+        .btn-success {
+            background: var(--accent-gradient);
+            color: white;
+            box-shadow: var(--glow-success);
+        }
+
+        .btn-success:hover {
             transform: translateY(-2px);
+            box-shadow: 0 0 30px rgba(16, 185, 129, 0.4);
         }
 
-        .btn-icon-only {
-            min-width: auto;
-            width: 44px;
-            height: 44px;
+        .btn-sm {
+            padding: 0.5rem 1rem;
+            font-size: 0.8rem;
+        }
+
+        .btn-icon {
+            min-width: 42px;
+            height: 42px;
             padding: 0;
-            border-radius: var(--spacing-sm);
         }
 
-        .playlist-item {
+        .url-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            min-height: 80px;
+        }
+
+        .url-list-empty {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            padding: 2rem;
+            color: var(--text-muted);
+            text-align: center;
+            font-size: 0.85rem;
+        }
+
+        .url-list-empty-icon {
+            font-size: 2rem;
+            opacity: 0.4;
+        }
+
+        .url-item {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            padding: 0.65rem 0.75rem;
             background: var(--surface);
             border: 1px solid var(--border-primary);
             border-radius: var(--border-radius);
-            padding: var(--spacing-md);
-            margin-bottom: var(--spacing-sm);
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
             transition: var(--transition-normal);
-            animation: slideInLeft 0.4s ease-out;
+            animation: slideIn 0.3s ease-out;
         }
 
-        .playlist-item:hover {
-            background: var(--surface-elevated);
+        .url-item:hover {
+            background: var(--surface-glass);
             border-color: var(--border-accent);
-            transform: translateX(4px);
         }
 
-        @keyframes slideInLeft {
-            from {
-                opacity: 0;
-                transform: translateX(-20px);
-            }
-
-            to {
-                opacity: 1;
-                transform: translateX(0);
-            }
+        .url-item-options {
+            display: flex;
+            gap: 0.35rem;
+            flex-wrap: wrap;
+            width: 100%;
+            padding-top: 0.35rem;
+            margin-top: 0.35rem;
+            border-top: 1px solid var(--border-primary);
         }
 
-        .playlist-url {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 0.85rem;
+        .url-item-option {
+            display: inline-flex;
+            align-items: center;
+            gap: 3px;
+            padding: 2px 8px;
+            border-radius: 6px;
+            background: var(--surface);
+            border: 1px solid var(--border-primary);
+            cursor: pointer;
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            transition: var(--transition-fast);
+            user-select: none;
+        }
+
+        .url-item-option:hover {
+            border-color: var(--accent-primary);
+            color: var(--text-secondary);
+        }
+
+        .url-item-option.active {
+            background: rgba(99, 102, 241, 0.1);
+            border-color: var(--accent-primary);
+            color: var(--accent-primary);
+        }
+
+        .url-item-option input[type="checkbox"] {
+            display: none;
+        }
+
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateX(-16px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+
+        .url-item-text {
+            flex: 1;
+            font-size: 0.82rem;
             color: var(--text-secondary);
             word-break: break-all;
-            margin-right: var(--spacing-sm);
+            font-family: 'Inter', monospace;
+            min-width: 0;
+            line-height: 1.4;
         }
 
-        .features-section {
-            margin-bottom: var(--spacing-2xl);
+        .url-item-remove {
+            width: 30px; height: 30px;
+            border: none;
+            background: transparent;
+            color: var(--text-muted);
+            border-radius: 8px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1rem;
+            transition: var(--transition-fast);
+            flex-shrink: 0;
         }
 
-        .features-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: var(--spacing-md);
-            margin-bottom: var(--spacing-xl);
+        .url-item-remove:hover {
+            background: rgba(239, 68, 68, 0.15);
+            color: var(--accent-error);
         }
 
-        .feature-badge {
-            background: var(--surface-glass);
-            border: 1px solid var(--border-primary);
-            border-radius: var(--border-radius);
-            padding: var(--spacing-sm) var(--spacing-md);
-            text-align: center;
-            font-size: 0.85rem;
-            color: var(--text-secondary);
-            backdrop-filter: blur(10px);
-            transition: var(--transition-normal);
+        .result-section {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
         }
 
-        .feature-badge:hover {
-            background: var(--surface-elevated);
-            color: var(--text-primary);
-            transform: scale(1.02);
+        .result-actions {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
         }
 
-        .examples-section {
-            margin-top: var(--spacing-xl);
-        }
-
-        .examples-list {
+        .result-url {
+            padding: 0.75rem 1rem;
             background: var(--surface);
             border: 1px solid var(--border-primary);
             border-radius: var(--border-radius);
-            padding: var(--spacing-lg);
-            margin-top: var(--spacing-md);
-        }
-
-        .example-item {
-            display: flex;
-            align-items: center;
-            padding: var(--spacing-sm) 0;
-            border-bottom: 1px solid var(--border-primary);
+            font-size: 0.82rem;
             color: var(--text-secondary);
-            font-size: 0.9rem;
+            word-break: break-all;
+            font-family: 'Inter', monospace;
+            line-height: 1.5;
+            max-height: 4.5rem;
+            overflow-y: auto;
         }
 
-        .example-item:last-child {
-            border-bottom: none;
+        .result-url-label {
+            font-size: 0.72rem;
+            color: var(--accent-success);
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.25rem;
         }
 
-        .example-bullet {
-            color: var(--accent-primary);
-            margin-right: var(--spacing-sm);
-            font-weight: bold;
-        }
-
-        .output-section {
-            position: relative;
-        }
-
-        .output-content {
-            background: var(--bg-tertiary);
+        .code-block {
+            background: var(--bg-secondary);
             border: 1px solid var(--border-primary);
             border-radius: var(--border-radius);
-            padding: 0;
-            /* Removed padding to let children control it */
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 0.9rem;
-            color: var(--text-secondary);
-            white-space: pre-wrap;
-            word-wrap: break-word;
+            padding: 1rem;
+            overflow-x: auto;
             overflow-y: auto;
+            max-height: 400px;
+            min-height: 120px;
             position: relative;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
         }
 
-        .output-placeholder {
-            color: var(--text-muted);
-            font-style: italic;
-            text-align: center;
-            padding: var(--spacing-lg);
+        .code-block code {
+            font-family: 'Inter', monospace;
+            font-size: 0.78rem;
+            color: var(--text-secondary);
+            white-space: pre;
+            line-height: 1.5;
+        }
+
+        .code-block-empty {
             display: flex;
             flex-direction: column;
             align-items: center;
-            gap: var(--spacing-sm);
+            justify-content: center;
+            gap: 0.5rem;
+            padding: 2rem;
+            color: var(--text-muted);
+            text-align: center;
+            font-size: 0.85rem;
+            min-height: 120px;
         }
 
-        .output-placeholder-icon {
+        .code-block-empty-icon {
             font-size: 2rem;
-            opacity: 0.5;
+            opacity: 0.4;
         }
 
-        .loading-spinner {
+        .loading-indicator {
             display: none;
-            width: 40px;
-            height: 40px;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            padding: 2rem;
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+
+        .loading-indicator.active {
+            display: flex;
+        }
+
+        .spinner {
+            width: 28px;
+            height: 28px;
             border: 3px solid var(--surface);
-            border-top: 3px solid var(--accent-primary);
+            border-top-color: var(--accent-primary);
             border-radius: 50%;
-            animation: spin 1s linear infinite;
-            margin: var(--spacing-xl) auto;
+            animation: spin 0.8s linear infinite;
         }
 
         @keyframes spin {
-            0% {
-                transform: rotate(0deg);
-            }
-
-            100% {
-                transform: rotate(360deg);
-            }
+            to { transform: rotate(360deg); }
         }
 
-        .copy-notification {
+        .toast {
             position: fixed;
-            top: 50%;
+            bottom: 2rem;
             left: 50%;
-            transform: translate(-50%, -50%) scale(0);
-            background: var(--success-gradient);
-            color: white;
-            padding: var(--spacing-lg) var(--spacing-xl);
+            transform: translateX(-50%) translateY(100px);
+            background: var(--surface-elevated);
+            border: 1px solid var(--border-accent);
+            backdrop-filter: blur(20px);
+            padding: 0.75rem 1.5rem;
             border-radius: var(--border-radius);
+            font-size: 0.9rem;
             font-weight: 500;
-            box-shadow: var(--shadow-dark);
-            z-index: 1000;
-            transition: var(--transition-normal);
-        }
-
-        .copy-notification.show {
-            transform: translate(-50%, -50%) scale(1);
-        }
-
-        .generated-link {
-            padding: var(--spacing-md);
-            display: flex;
-            align-items: center;
-            gap: var(--spacing-sm);
-        }
-
-        .link-text {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 0.85rem;
             color: var(--text-primary);
-            word-break: break-all;
-            flex: 1;
-            background: rgba(0, 0, 0, 0.2);
-            padding: var(--spacing-sm);
-            border-radius: 4px;
-            border: 1px solid var(--border-primary);
+            box-shadow: var(--shadow-dark);
+            z-index: 100;
+            transition: var(--transition-normal);
+            opacity: 0;
+            pointer-events: none;
         }
 
-        .link-label {
-            color: var(--accent-success);
-            font-weight: 600;
-            font-size: 0.85rem;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            margin-bottom: var(--spacing-xs);
+        .toast.show {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
         }
 
-        /* Responsive Design */
-        @media (max-width: 1024px) {
+        @media (max-width: 900px) {
             .main-content {
                 grid-template-columns: 1fr;
-                gap: var(--spacing-xl);
             }
         }
 
         @media (max-width: 768px) {
-            .container {
-                padding: var(--spacing-md);
-            }
-
-            .features-grid {
-                grid-template-columns: 1fr;
-            }
-
-            .input-group {
-                flex-direction: column;
-            }
-
-            .btn {
-                width: 100%;
-                justify-content: center;
-            }
-
-            .generated-link {
-                flex-direction: column;
-                align-items: stretch;
-            }
+            .container { padding: 1rem; }
+            .nav-bar { flex-direction: column; gap: 1rem; align-items: flex-start; }
+            .input-row { flex-direction: column; }
+            .result-actions { flex-direction: column; }
+            .result-actions .btn { width: 100%; justify-content: center; }
         }
 
-        /* Scrollbar Styling */
-        ::-webkit-scrollbar {
-            width: 8px;
-        }
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: var(--bg-secondary); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb { background: var(--surface-elevated); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--border-accent); }
 
-        ::-webkit-scrollbar-track {
-            background: var(--bg-secondary);
-            border-radius: 4px;
-        }
-
-        ::-webkit-scrollbar-thumb {
-            background: var(--surface-elevated);
-            border-radius: 4px;
-        }
-
-        ::-webkit-scrollbar-thumb:hover {
-            background: var(--border-accent);
-        }
-
-        /* Custom animations */
         .fade-in {
-            animation: fadeIn 0.5s ease-out;
+            opacity: 0;
+            transform: translateY(20px);
+            transition: opacity 0.5s ease-out, transform 0.5s ease-out;
         }
 
-        @keyframes fadeIn {
-            from {
-                opacity: 0;
-            }
-
-            to {
-                opacity: 1;
-            }
+        .fade-in.visible {
+            opacity: 1;
+            transform: translateY(0);
         }
 
         .pulse-success {
-            animation: pulseSuccess 0.6s ease-in-out;
+            animation: pulseSuccess 0.5s ease-in-out;
         }
 
         @keyframes pulseSuccess {
-            0% {
-                transform: scale(1);
-            }
-
-            50% {
-                transform: scale(1.05);
-                box-shadow: var(--glow-success);
-            }
-
-            100% {
-                transform: scale(1);
-            }
+            0% { transform: scale(1); }
+            50% { transform: scale(1.06); }
+            100% { transform: scale(1); }
         }
     </style>
 </head>
-
 <body>
-    <div class="container">
-        <div class="header">
-            <h1 class="main-title">Playlist Builder</h1>
-            <p class="main-subtitle">Combine multiple IPTV playlists generating a unified link for the /playlist
-                endpoint
-            </p>
-        </div>
 
-        <div class="features-section">
-            <div class="features-grid">
-                <div class="feature-badge">🔗 Unified /playlist link</div>
-                <div class="feature-badge">🔧 Auto separation with ;</div>
-                <div class="feature-badge">📺 Server compatible format</div>
-                <div class="feature-badge">🎯 Instant generation</div>
-                <div class="feature-badge">🌐 Multiple URL support</div>
-                <div class="feature-badge">📋 One-click copy</div>
+    <canvas id="particles-canvas"></canvas>
+    <div class="bg-glow"></div>
+
+    <div class="container">
+        <div class="nav-bar fade-in visible">
+            <a href="/" class="back-link">
+                <span>←</span>
+                <span>Back to Home</span>
+            </a>
+            <div class="version-info-row">
+                <div class="version-chip">
+                    <span>v{{APP_VERSION}}</span>
+                </div>
+                <div class="version-chip">
+                    <span>Latest:</span>
+                    <span class="version-latest {{VERSION_STATUS_CLASS}}">{{LATEST_VERSION}}</span>
+                </div>
+                <div class="warp-chip">WARP: {{WARP_STATUS}}</div>
             </div>
         </div>
 
+        <div class="fade-in visible">
+            <h1 class="page-title">Playlist Builder</h1>
+            <p class="page-subtitle">Combine multiple IPTV playlists into a single unified M3U8 stream with proxy integration.</p>
+        </div>
+
+        <div class="features-strip fade-in visible">
+            <span class="feature-pill">🔗 Unified link</span>
+            <span class="feature-pill">🔧 Auto separation</span>
+            <span class="feature-pill">📺 M3U8 output</span>
+            <span class="feature-pill">🎯 Instant generate</span>
+            <span class="feature-pill">🌐 Multiple URLs</span>
+            <span class="feature-pill">📋 Copy &amp; download</span>
+        </div>
+
         <div class="main-content">
-            <div class="left-panel">
-                <h2 class="section-title">
-                    <span class="section-icon">📝</span>
+            <div class="card fade-in visible">
+                <h2 class="card-title">
+                    <span class="card-title-icon">📝</span>
                     Playlist Configuration
                 </h2>
 
-                <form id="playlistForm">
-                    <div class="form-group">
-                        <label class="form-label">Playlist URL</label>
-                        <div class="input-group">
-                            <input type="url" id="urlInput" class="form-input"
-                                placeholder="https://provider.com/playlist.m3u8" required>
-                            <button type="button" id="addUrl" class="btn btn-primary btn-icon-only">
-                                ➕
-                            </button>
-                        </div>
-                    </div>
-
-                    <div class="form-group">
-                        <label class="form-label">API Password (Optional)</label>
-                        <div class="input-group">
-                            <input type="password" id="apiPasswordInput" class="form-input"
-                                placeholder="Enter API password if required by the server">
-                        </div>
-                        <small style="color: var(--text-muted); display: block; margin-top: 5px;">
-                            This password will be included in the generated link and used to authenticate requests.
-                        </small>
-                    </div>
-                </form>
-
                 <div class="form-group">
-                    <label class="form-label">Added Playlists</label>
-                    <div id="playlistList">
-                        <div class="output-placeholder">
-                            <div class="output-placeholder-icon">📋</div>
-                            <p>No playlists added</p>
-                            <small>Enter playlist URLs and click ➕ to add them</small>
-                        </div>
+                    <label class="form-label">Playlist URL</label>
+                    <div class="input-row">
+                        <input type="url" id="urlInput" class="form-input"
+                            placeholder="https://provider.com/playlist.m3u8">
+                        <button type="button" id="addBtn" class="btn btn-primary btn-icon" title="Add URL">
+                            <span>+</span>
+                        </button>
                     </div>
                 </div>
 
                 <div class="form-group">
-                    <button id="clearBtn" class="btn btn-secondary" style="width: 100%;">
+                    <label class="form-label">API Password <span style="color:var(--text-muted);font-weight:400;">(optional)</span></label>
+                    <input type="password" id="apiPasswordInput" class="form-input"
+                        placeholder="Enter API password if required">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Added Playlists <span id="urlCount" style="color:var(--text-muted);font-weight:400;"></span></label>
+                    <div class="url-list" id="urlList">
+                        <div class="url-list-empty" id="urlListEmpty">
+                            <div class="url-list-empty-icon">📋</div>
+                            <p>No playlists added</p>
+                            <small>Enter a URL and click + to add</small>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+                    <button id="generateBtn" class="btn btn-primary" disabled>
+                        <span>⚡</span>
+                        <span>Generate Playlist</span>
+                    </button>
+                    <button id="clearBtn" class="btn btn-secondary">
                         <span>🗑️</span>
-                        <span>Clear List</span>
+                        <span>Clear All</span>
                     </button>
                 </div>
             </div>
 
-            <div class="right-panel">
-                <div class="output-section">
-                    <h2 class="section-title">
-                        <span class="section-icon">🔗</span>
-                        Generated Link
-                        <button id="copyBtn" class="btn btn-secondary btn-icon-only" style="margin-left: auto;"
-                            disabled>
-                            📋
-                        </button>
-                    </h2>
+            <div class="card fade-in visible">
+                <h2 class="card-title">
+                    <span class="card-title-icon">🎵</span>
+                    Generated Playlist
+                </h2>
 
-                    <div class="loading-spinner" id="loadingSpinner"></div>
+                <div class="result-section">
+                    <div class="result-url-label">Generated URL</div>
+                    <div class="result-url" id="resultUrl">—</div>
 
-                    <div class="output-content" id="outputContent">
-                        <div class="output-placeholder">
-                            <div class="output-placeholder-icon">🔗</div>
-                            <p>The combined link will appear here</p>
-                            <small>Enter playlist URLs to create the link</small>
+                    <div class="loading-indicator" id="loadingIndicator">
+                        <div class="spinner"></div>
+                        <span>Fetching playlist data...</span>
+                    </div>
+
+                    <div class="code-block" id="codeBlock">
+                        <div class="code-block-empty" id="codeBlockEmpty">
+                            <div class="code-block-empty-icon">📄</div>
+                            <p>Playlist content will appear here</p>
+                            <small>Add URLs and click Generate to fetch the combined M3U8</small>
                         </div>
+                        <code id="codeContent" style="display:none;"></code>
+                    </div>
+
+                    <div class="result-actions">
+                        <button id="copyBtn" class="btn btn-secondary btn-sm" disabled>
+                            <span>📋</span>
+                            <span>Copy to Clipboard</span>
+                        </button>
+                        <button id="downloadBtn" class="btn btn-success btn-sm" disabled>
+                            <span>⬇️</span>
+                            <span>Download</span>
+                        </button>
                     </div>
                 </div>
             </div>
         </div>
     </div>
 
-    <div class="copy-notification" id="copyNotification">
-        ✅ Link copied to clipboard!
-    </div>
+    <div class="toast" id="toast"></div>
 
     <script>
+        const canvas = document.getElementById('particles-canvas');
+        const ctx = canvas.getContext('2d');
+        let particles = [];
+
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        resize();
+        window.addEventListener('resize', resize);
+
+        class Particle {
+            constructor() { this.reset(); }
+            reset() {
+                this.x = Math.random() * canvas.width;
+                this.y = Math.random() * canvas.height;
+                this.vx = (Math.random() - 0.5) * 0.4;
+                this.vy = (Math.random() - 0.5) * 0.4;
+                this.size = Math.random() * 2 + 0.5;
+                this.alpha = Math.random() * 0.4 + 0.1;
+                this.pulse = Math.random() * Math.PI * 2;
+                this.pulseSpeed = Math.random() * 0.02 + 0.005;
+            }
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.pulse += this.pulseSpeed;
+                if (this.x < 0 || this.x > canvas.width) this.vx *= -1;
+                if (this.y < 0 || this.y > canvas.height) this.vy *= -1;
+            }
+            draw() {
+                const a = this.alpha * (0.6 + 0.4 * Math.sin(this.pulse));
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(168, 85, 247, ${a})`;
+                ctx.fill();
+            }
+        }
+
+        for (let i = 0; i < 100; i++) particles.push(new Particle());
+
+        function animate() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            for (const p of particles) { p.update(); p.draw(); }
+            for (let i = 0; i < particles.length; i++) {
+                for (let j = i + 1; j < particles.length; j++) {
+                    const dx = particles[i].x - particles[j].x;
+                    const dy = particles[i].y - particles[j].y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    if (dist < 150) {
+                        ctx.beginPath();
+                        ctx.moveTo(particles[i].x, particles[i].y);
+                        ctx.lineTo(particles[j].x, particles[j].y);
+                        ctx.strokeStyle = `rgba(99, 102, 241, ${0.1 * (1 - dist / 150)})`;
+                        ctx.lineWidth = 0.5;
+                        ctx.stroke();
+                    }
+                }
+            }
+            requestAnimationFrame(animate);
+        }
+        animate();
+
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) entry.target.classList.add('visible');
+            });
+        }, { threshold: 0.1, rootMargin: '0px 0px -50px 0px' });
+        document.querySelectorAll('.fade-in:not(.visible)').forEach(el => observer.observe(el));
+
         class PlaylistBuilder {
             constructor() {
-                this.playlists = [];
-                this.initializeElements();
-                this.attachEventListeners();
+                this.urls = [];
+                this.playlistContent = '';
+                this.elements = {
+                    urlInput: document.getElementById('urlInput'),
+                    apiPassword: document.getElementById('apiPasswordInput'),
+                    addBtn: document.getElementById('addBtn'),
+                    generateBtn: document.getElementById('generateBtn'),
+                    clearBtn: document.getElementById('clearBtn'),
+                    urlList: document.getElementById('urlList'),
+                    urlListEmpty: document.getElementById('urlListEmpty'),
+                    urlCount: document.getElementById('urlCount'),
+                    resultUrl: document.getElementById('resultUrl'),
+                    codeBlock: document.getElementById('codeBlock'),
+                    codeContent: document.getElementById('codeContent'),
+                    codeBlockEmpty: document.getElementById('codeBlockEmpty'),
+                    loadingIndicator: document.getElementById('loadingIndicator'),
+                    copyBtn: document.getElementById('copyBtn'),
+                    downloadBtn: document.getElementById('downloadBtn'),
+                    toast: document.getElementById('toast'),
+                };
+                this.bindEvents();
             }
 
-            initializeElements() {
-                this.urlInput = document.getElementById('urlInput');
-                this.apiPasswordInput = document.getElementById('apiPasswordInput');
-                this.addUrlBtn = document.getElementById('addUrl');
-                this.playlistList = document.getElementById('playlistList');
-                this.clearBtn = document.getElementById('clearBtn');
-                this.outputContent = document.getElementById('outputContent');
-                this.copyBtn = document.getElementById('copyBtn');
-                this.loadingSpinner = document.getElementById('loadingSpinner');
-                this.copyNotification = document.getElementById('copyNotification');
-            }
-
-            attachEventListeners() {
-                this.addUrlBtn.addEventListener('click', () => this.addPlaylist());
-                this.urlInput.addEventListener('keypress', (e) => {
-                    if (e.key === 'Enter') {
-                        e.preventDefault();
-                        this.addPlaylist();
-                    }
+            bindEvents() {
+                this.elements.addBtn.addEventListener('click', () => this.addUrl());
+                this.elements.urlInput.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') { e.preventDefault(); this.addUrl(); }
                 });
-                this.apiPasswordInput.addEventListener('input', () => this.generatePlaylistLink());
-                this.clearBtn.addEventListener('click', () => this.clearPlaylists());
-                this.copyBtn.addEventListener('click', () => this.copyToClipboard());
+                this.elements.generateBtn.addEventListener('click', () => this.generate());
+                this.elements.clearBtn.addEventListener('click', () => this.clearAll());
+                this.elements.copyBtn.addEventListener('click', () => this.copyContent());
+                this.elements.downloadBtn.addEventListener('click', () => this.downloadContent());
+                this.elements.apiPassword.addEventListener('input', () => this.updateGenerateUrl());
             }
 
-            addPlaylist() {
-                const url = this.urlInput.value.trim();
+            addUrl() {
+                const url = this.elements.urlInput.value.trim();
                 if (!url) return;
-
                 if (!this.isValidUrl(url)) {
-                    this.showNotification('❌ Invalid URL', 'error');
+                    this.showToast('Invalid URL', 'error');
                     return;
                 }
-
-                // Check if URL already exists (check the url property of objects)
-                if (this.playlists.some(p => p.url === url)) {
-                    this.showNotification('⚠️ URL already in the list', 'warning');
+                if (this.urls.some(u => u.url === url)) {
+                    this.showToast('URL already in list', 'warning');
                     return;
                 }
-
-                this.playlists.push({
-                    url: url,
-                    sort: false,
-                    noProxy: false,
-                    nativeMpd: false,
-                    warp: false
-                });
-
-                this.urlInput.value = '';
-                this.updatePlaylistList();
-                this.generatePlaylistLink();
-
-                // Success animation
-                this.addUrlBtn.classList.add('pulse-success');
-                setTimeout(() => {
-                    this.addUrlBtn.classList.remove('pulse-success');
-                }, 600);
+                this.urls.push({ url, sort: false, noProxy: false, nativeMpd: false, warp: false });
+                this.elements.urlInput.value = '';
+                this.elements.urlInput.focus();
+                this.renderList();
+                this.updateGenerateUrl();
+                this.elements.addBtn.classList.add('pulse-success');
+                setTimeout(() => this.elements.addBtn.classList.remove('pulse-success'), 500);
             }
 
-            isValidUrl(string) {
+            isValidUrl(s) {
                 try {
-                    const url = new URL(string);
+                    const url = new URL(s);
                     return url.protocol === 'http:' || url.protocol === 'https:';
-                } catch (_) {
-                    return false;
-                }
+                } catch { return false; }
             }
 
-            updatePlaylistList() {
-                if (this.playlists.length === 0) {
-                    this.playlistList.innerHTML = `
-                        <div class="output-placeholder">
-                            <div class="output-placeholder-icon">📋</div>
-                            <p>No playlists added</p>
-                            <small>Enter playlist URLs and click ➕ to add them</small>
+            removeUrl(index) {
+                this.urls.splice(index, 1);
+                this.renderList();
+                this.updateGenerateUrl();
+            }
+
+            renderList() {
+                const empty = this.elements.urlListEmpty;
+                const list = this.elements.urlList;
+                const count = this.elements.urlCount;
+
+                count.textContent = this.urls.length ? `(${this.urls.length})` : '';
+
+                if (this.urls.length === 0) {
+                    list.innerHTML = '';
+                    list.appendChild(empty);
+                    empty.style.display = 'flex';
+                    this.elements.generateBtn.disabled = true;
+                    return;
+                }
+
+                empty.style.display = 'none';
+                this.elements.generateBtn.disabled = false;
+                list.innerHTML = '';
+
+                this.urls.forEach((item, i) => {
+                    const el = document.createElement('div');
+                    el.className = 'url-item';
+                    el.innerHTML = `
+                        <span class="url-item-text">${this.escapeHtml(item.url)}</span>
+                        <button class="url-item-remove" data-index="${i}" title="Remove">✕</button>
+                        <div class="url-item-options">
+                            <label class="url-item-option ${item.sort ? 'active' : ''}">
+                                <input type="checkbox" data-opt="sort" data-index="${i}" ${item.sort ? 'checked' : ''}>
+                                Sort A-Z
+                            </label>
+                            <label class="url-item-option ${item.noProxy ? 'active' : ''}">
+                                <input type="checkbox" data-opt="noProxy" data-index="${i}" ${item.noProxy ? 'checked' : ''}>
+                                No Proxy
+                            </label>
+                            <label class="url-item-option ${item.nativeMpd ? 'active' : ''}">
+                                <input type="checkbox" data-opt="nativeMpd" data-index="${i}" ${item.nativeMpd ? 'checked' : ''}>
+                                Native MPD
+                            </label>
+                            <label class="url-item-option ${item.warp ? 'active' : ''}">
+                                <input type="checkbox" data-opt="warp" data-index="${i}" ${item.warp ? 'checked' : ''}>
+                                Warp Off
+                            </label>
                         </div>
                     `;
-                    return;
-                }
-
-                this.playlistList.innerHTML = this.playlists.map((item, index) => `
-                    <div class="playlist-item">
-                        <div style="flex: 1; min-width: 0;">
-                            <div class="playlist-url" title="${item.url}">${item.url}</div>
-                            <div style="display: flex; gap: 10px; margin-top: 8px;">
-                                <label style="display: flex; align-items: center; gap: 4px; font-size: 0.85rem; color: var(--text-secondary); cursor: pointer;">
-                                    <input type="checkbox" ${item.sort ? 'checked' : ''} onchange="playlistBuilder.toggleSort(${index})">
-                                    Sort A-Z
-                                </label>
-                                <label style="display: flex; align-items: center; gap: 4px; font-size: 0.85rem; color: var(--text-secondary); cursor: pointer;">
-                                    <input type="checkbox" ${item.noProxy ? 'checked' : ''} onchange="playlistBuilder.toggleNoProxy(${index})">
-                                    No Proxy
-                                </label>
-                                <label style="display: flex; align-items: center; gap: 4px; font-size: 0.85rem; color: var(--text-secondary); cursor: pointer;">
-                                    <input type="checkbox" ${item.nativeMpd ? 'checked' : ''} onchange="playlistBuilder.toggleNativeMpd(${index})">
-                                    Native MPD
-                                </label>
-                                <label style="display: flex; align-items: center; gap: 4px; font-size: 0.85rem; color: var(--text-secondary); cursor: pointer;">
-                                    <input type="checkbox" ${item.warp ? 'checked' : ''} onchange="playlistBuilder.toggleWarp(${index})">
-                                    Warp Off
-                                </label>
-                            </div>
-                        </div>
-                        <button class="btn btn-secondary btn-icon-only" onclick="playlistBuilder.removePlaylist(${index})" style="margin-left: 10px;">
-                            ❌
-                        </button>
-                    </div>
-                `).join('');
-            }
-
-            toggleSort(index) {
-                this.playlists[index].sort = !this.playlists[index].sort;
-                this.generatePlaylistLink();
-            }
-
-            toggleNoProxy(index) {
-                this.playlists[index].noProxy = !this.playlists[index].noProxy;
-                this.generatePlaylistLink();
-            }
-
-            toggleNativeMpd(index) {
-                this.playlists[index].nativeMpd = !this.playlists[index].nativeMpd;
-                this.generatePlaylistLink();
-            }
-
-            toggleWarp(index) {
-                this.playlists[index].warp = !this.playlists[index].warp;
-                this.generatePlaylistLink();
-            }
-
-            removePlaylist(index) {
-                this.playlists.splice(index, 1);
-                this.updatePlaylistList();
-                this.generatePlaylistLink();
-            }
-
-            generatePlaylistLink() {
-                if (this.playlists.length === 0) {
-                    this.resetOutput();
-                    return;
-                }
-
-                const generatedLink = this.createPlaylistLink();
-                this.displayResult(generatedLink);
-                this.copyBtn.disabled = false;
-            }
-
-            async simulateLoading() {
-                // Short pause for UX
-                return new Promise(resolve => {
-                    setTimeout(resolve, 800);
+                    el.querySelector('.url-item-remove').addEventListener('click', () => this.removeUrl(i));
+                    el.querySelectorAll('.url-item-option input').forEach(cb => {
+                        cb.addEventListener('change', (e) => {
+                            const opt = e.target.dataset.opt;
+                            const idx = parseInt(e.target.dataset.index);
+                            this.urls[idx][opt] = e.target.checked;
+                            e.target.closest('.url-item-option').classList.toggle('active', e.target.checked);
+                            this.updateGenerateUrl();
+                        });
+                    });
+                    list.appendChild(el);
                 });
             }
 
-            createPlaylistLink() {
-                // Crea il link nel formato /playlist?url=URL1|sort=true|noproxy=false;URL2...
-                const encodedDefinitions = this.playlists.map(p => {
+            escapeHtml(s) {
+                const d = document.createElement('div');
+                d.textContent = s;
+                return d.innerHTML;
+            }
+
+            buildPlaylistUrl() {
+                const hasMpd = this.urls.some(p => p.url.toLowerCase().includes('.mpd'));
+                if (hasMpd) {
+                    const base = window.location.origin;
+                    const parts = this.urls.map(p => {
+                        let rawUrl = p.url;
+                        let extraParams = '';
+                        if (p.warp) extraParams += '&warp=off';
+                        const pw = this.elements.apiPassword.value.trim();
+                        if (pw) extraParams += `&api_password=${encodeURIComponent(pw)}`;
+                        const ck = rawUrl.match(/[?&]clearkey=([^&]+)/i);
+                        if (ck) {
+                            extraParams += `&clearkey=${ck[1]}`;
+                            rawUrl = rawUrl.replace(/[?&]clearkey=[^&]+/i, '');
+                            rawUrl = rawUrl.replace(/^\?&/, '?').replace(/[?&]$/, '');
+                        }
+                        const hasQ = rawUrl.includes('?') && rawUrl.split('?')[1].trim();
+                        const cleanUrl = hasQ ? rawUrl : rawUrl.replace(/\?$/, '');
+                        return `${base}/proxy/mpd/manifest.m3u8?d=${encodeURIComponent(cleanUrl)}${extraParams}`;
+                    });
+                    return parts.join('\n');
+                }
+                const encoded = this.urls.map(p => {
                     let def = p.url;
                     if (p.sort) def += '|sort=true';
                     if (p.noProxy) def += '|noproxy=true';
@@ -894,144 +1075,184 @@
                     if (p.warp) def += '|warp=off';
                     return encodeURIComponent(def);
                 });
-                const urlString = encodedDefinitions.join(';');
-                const baseUrl = window.location.origin;
-
-                let finalUrl = `${baseUrl}/playlist?url=${urlString}`;
-
-                // Aggiungi api_password se presente
-                const apiPassword = this.apiPasswordInput.value.trim();
-                if (apiPassword) {
-                    finalUrl += `&api_password=${encodeURIComponent(apiPassword)}`;
-                }
-
+                const urlString = encoded.join(';');
+                const base = window.location.origin;
+                let finalUrl = `${base}/playlist?url=${urlString}`;
+                const pw = this.elements.apiPassword.value.trim();
+                if (pw) finalUrl += `&api_password=${encodeURIComponent(pw)}`;
                 return finalUrl;
             }
 
-            displayResult(link) {
-                this.outputContent.innerHTML = `
-                    <div class="generated-link fade-in">
-                        <div class="link-text">${link}</div>
-                    </div>
+            updateGenerateUrl() {
+                if (this.urls.length === 0) {
+                    this.elements.resultUrl.textContent = '—';
+                    return;
+                }
+                const url = this.buildPlaylistUrl();
+                const hasMpd = this.urls.some(p => p.url.toLowerCase().includes('.mpd'));
+                if (hasMpd) {
+                    this.elements.resultUrl.innerHTML = url.replace(/\n/g, '<br>');
+                } else {
+                    this.elements.resultUrl.textContent = url;
+                }
+            }
+
+            async generate() {
+                if (this.urls.length === 0) return;
+
+                const hasMpd = this.urls.some(p => p.url.toLowerCase().includes('.mpd'));
+                const url = this.buildPlaylistUrl();
+
+                if (hasMpd) {
+                    this.setLoading(true);
+                    this.clearResult();
+                    const lines = [];
+                    for (const mpdUrl of url.split('\n')) {
+                        try {
+                            const resp = await fetch(mpdUrl);
+                            const text = resp.ok ? await resp.text() : `HTTP ${resp.status}: ${await resp.text().catch(() => '')}`;
+                            lines.push(`# === ${mpdUrl.split('?d=')[1] ? decodeURIComponent(mpdUrl.split('?d=')[1].split('&')[0]) : mpdUrl} ===`);
+                            lines.push(text);
+                        } catch (err) {
+                            lines.push(`# ERROR: ${err.message}`);
+                        }
+                    }
+                    this.playlistContent = lines.join('\n');
+                    this.setResult(this.playlistContent);
+                    this.elements.copyBtn.disabled = false;
+                    this.elements.downloadBtn.disabled = false;
+                    this.showToast('MPD playlists fetched', 'success');
+                    this.setLoading(false);
+                    return;
+                }
+
+                this.setLoading(true);
+                this.clearResult();
+
+                try {
+                    const response = await fetch(url);
+                    if (!response.ok) {
+                        const errText = await response.text().catch(() => 'Unknown error');
+                        throw new Error(`HTTP ${response.status}: ${errText}`);
+                    }
+                    const text = await response.text();
+                    this.playlistContent = text;
+                    this.setResult(text);
+                    this.elements.copyBtn.disabled = false;
+                    this.elements.downloadBtn.disabled = false;
+                    this.showToast('Playlist fetched successfully', 'success');
+                } catch (err) {
+                    this.showResultError(`Failed to fetch playlist: ${err.message}`);
+                    this.playlistContent = '';
+                    this.elements.copyBtn.disabled = true;
+                    this.elements.downloadBtn.disabled = true;
+                } finally {
+                    this.setLoading(false);
+                }
+            }
+
+            setLoading(active) {
+                this.elements.loadingIndicator.classList.toggle('active', active);
+                this.elements.generateBtn.disabled = active || this.urls.length === 0;
+                if (active) {
+                    this.elements.generateBtn.textContent = 'Fetching...';
+                } else {
+                    this.elements.generateBtn.innerHTML = '<span>⚡</span><span>Generate Playlist</span>';
+                }
+            }
+
+            clearResult() {
+                this.elements.codeContent.style.display = 'none';
+                this.elements.codeContent.textContent = '';
+                this.elements.codeBlockEmpty.style.display = 'flex';
+                this.elements.codeBlockEmpty.innerHTML = `
+                    <div class="code-block-empty-icon">⏳</div>
+                    <p>Fetching playlist...</p>
                 `;
             }
 
-            setLoading(loading) {
-                this.loadingSpinner.style.display = loading ? 'block' : 'none';
-                if (loading) {
-                    this.outputContent.innerHTML = '<div class="output-placeholder"><div class="output-placeholder-icon">⏳</div><p>Generating link...</p></div>';
-                }
+            setResult(text) {
+                this.elements.codeBlockEmpty.style.display = 'none';
+                this.elements.codeContent.textContent = text;
+                this.elements.codeContent.style.display = 'block';
             }
 
-            async copyToClipboard() {
-                const linkElement = document.querySelector('.link-text');
-                if (!linkElement) return;
-
-                const link = linkElement.textContent;
-
-                try {
-                    await navigator.clipboard.writeText(link);
-                    this.showCopyNotification();
-
-                    // Button animation
-                    this.copyBtn.classList.add('pulse-success');
-                    setTimeout(() => {
-                        this.copyBtn.classList.remove('pulse-success');
-                    }, 600);
-                } catch (err) {
-                    // Fallback for browsers that don't support clipboard API
-                    this.fallbackCopyTextToClipboard(link);
-                }
+            showResultError(msg) {
+                this.elements.codeBlockEmpty.style.display = 'flex';
+                this.elements.codeBlockEmpty.innerHTML = `
+                    <div class="code-block-empty-icon">❌</div>
+                    <p>Error</p>
+                    <small>${this.escapeHtml(msg)}</small>
+                `;
+                this.elements.codeContent.style.display = 'none';
+                this.elements.codeContent.textContent = '';
             }
 
-            fallbackCopyTextToClipboard(text) {
-                const textArea = document.createElement('textarea');
-                textArea.value = text;
-                textArea.style.position = 'fixed';
-                textArea.style.left = '-999999px';
-                textArea.style.top = '-999999px';
-                document.body.appendChild(textArea);
-                textArea.focus();
-                textArea.select();
-
+            async copyContent() {
+                if (!this.playlistContent) return;
                 try {
+                    await navigator.clipboard.writeText(this.playlistContent);
+                    this.showToast('Copied to clipboard', 'success');
+                    this.elements.copyBtn.classList.add('pulse-success');
+                    setTimeout(() => this.elements.copyBtn.classList.remove('pulse-success'), 500);
+                } catch {
+                    const ta = document.createElement('textarea');
+                    ta.value = this.playlistContent;
+                    ta.style.position = 'fixed';
+                    ta.style.left = '-9999px';
+                    ta.style.top = '-9999px';
+                    document.body.appendChild(ta);
+                    ta.select();
                     document.execCommand('copy');
-                    this.showCopyNotification();
-                } catch (err) {
-                    this.showNotification('❌ Could not copy to clipboard', 'error');
+                    document.body.removeChild(ta);
+                    this.showToast('Copied to clipboard', 'success');
                 }
-
-                document.body.removeChild(textArea);
             }
 
-            showCopyNotification() {
-                this.copyNotification.classList.add('show');
-                setTimeout(() => {
-                    this.copyNotification.classList.remove('show');
-                }, 2000);
+            downloadContent() {
+                if (!this.playlistContent) return;
+                const blob = new Blob([this.playlistContent], { type: 'application/vnd.apple.mpegurl' });
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = 'combined-playlist.m3u8';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(a.href);
+                this.showToast('Download started', 'success');
             }
 
-            clearPlaylists() {
-                this.playlists = [];
-                this.updatePlaylistList();
-                this.resetOutput();
-                this.showNotification('🗑️ Playlist list cleared', 'info');
-            }
-
-            resetOutput() {
-                this.outputContent.innerHTML = `
-                    <div class="output-placeholder">
-                        <div class="output-placeholder-icon">🔗</div>
-                        <p>The combined link will appear here</p>
-                        <small>Enter playlist URLs and click "Generate Link" to create the unified link</small>
-                    </div>
+            clearAll() {
+                this.urls = [];
+                this.playlistContent = '';
+                this.renderList();
+                this.updateGenerateUrl();
+                this.elements.resultUrl.textContent = '—';
+                this.elements.codeContent.style.display = 'none';
+                this.elements.codeContent.textContent = '';
+                this.elements.codeBlockEmpty.style.display = 'flex';
+                this.elements.codeBlockEmpty.innerHTML = `
+                    <div class="code-block-empty-icon">📄</div>
+                    <p>Playlist content will appear here</p>
+                    <small>Add URLs and click Generate to fetch the combined M3U8</small>
                 `;
-                this.copyBtn.disabled = true;
+                this.elements.copyBtn.disabled = true;
+                this.elements.downloadBtn.disabled = true;
+                this.elements.generateBtn.disabled = true;
+                this.showToast('List cleared', 'info');
             }
 
-            showError(message) {
-                this.outputContent.innerHTML = `
-                    <div class="output-placeholder">
-                        <div class="output-placeholder-icon">❌</div>
-                        <p>Error</p>
-                        <small>${message}</small>
-                    </div>
-                `;
-                this.showNotification('❌ ' + message, 'error');
-            }
-
-            showNotification(message, type = 'info') {
-                // Simplified implementation for now
-                console.log(`${type.toUpperCase()}: ${message}`);
+            showToast(msg, type) {
+                const t = this.elements.toast;
+                t.textContent = msg;
+                t.className = 'toast show';
+                clearTimeout(this._toastTimeout);
+                this._toastTimeout = setTimeout(() => t.classList.remove('show'), 2500);
             }
         }
 
-        // Initialization
-        const playlistBuilder = new PlaylistBuilder();
-
-        // Additional interactive effects
-        document.addEventListener('DOMContentLoaded', function () {
-            // Hover effect on cards
-            const cards = document.querySelectorAll('.left-panel, .right-panel');
-
-            cards.forEach(card => {
-                card.addEventListener('mouseenter', function () {
-                    this.style.transform = 'translateY(-4px)';
-                });
-
-                card.addEventListener('mouseleave', function () {
-                    this.style.transform = 'translateY(0)';
-                });
-            });
-
-            // Feature badges animation
-            const badges = document.querySelectorAll('.feature-badge');
-            badges.forEach((badge, index) => {
-                badge.style.animationDelay = `${index * 0.1}s`;
-                badge.classList.add('fade-in');
-            });
-        });
+        new PlaylistBuilder();
     </script>
-</body>
 
+</body>
 </html>

@@ -4,25 +4,35 @@ import os
 import asyncio
 from aiohttp import web
 
+# Configura logging PRIMA di qualsiasi import che possa emettere log
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(name)s - %(message)s'
+)
+
 # Aggiungi path corrente per import moduli
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from services.proxy import HLSProxy
 from services.ffmpeg_manager import FFmpegManager
-from config import PORT, DVR_ENABLED, RECORDINGS_DIR, MAX_RECORDING_DURATION, RECORDINGS_RETENTION_DAYS
+from config import PORT, DVR_ENABLED, RECORDINGS_DIR, MAX_RECORDING_DURATION, RECORDINGS_RETENTION_DAYS, APP_VERSION
 
 # Only import DVR components if enabled
 if DVR_ENABLED:
     from services.recording_manager import RecordingManager
     from routes.recordings import setup_recording_routes
 
-# Configurazione logging (già configurata in config.py ma utile per il main)
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(name)s - %(message)s'
-)
+# Only import DVR components if enabled
+if DVR_ENABLED:
+    from services.recording_manager import RecordingManager
+    from routes.recordings import setup_recording_routes
 
 logger = logging.getLogger(__name__)
+
+def _read_file(path):
+    """Helper for async file reading via run_in_executor."""
+    with open(path, 'r', encoding='utf-8') as f:
+        return f.read()
 
 # --- Logica di Avvio ---
 def create_app():
@@ -38,6 +48,7 @@ def create_app():
     app = web.Application()
     app['ffmpeg_manager'] = ffmpeg_manager # Make accessible for routes
     app.ffmpeg_manager = ffmpeg_manager # Hack for access in route handler above function
+    app['proxy'] = proxy
 
     # Initialize recording manager for DVR functionality (only if enabled)
     if DVR_ENABLED:
@@ -79,6 +90,16 @@ def create_app():
     app.router.add_get('/extractor/video', proxy.handle_extractor_request)
     app.router.add_get('/extractor/video.m3u8', proxy.handle_extractor_request)
     app.router.add_get('/extractor/video.mp4', proxy.handle_extractor_request)
+    app.router.add_get('/extractor/video.mpd', proxy.handle_extractor_request)
+    app.router.add_get('/extractor/video.ts', proxy.handle_extractor_request)
+    app.router.add_get('/extractor/video.m4s', proxy.handle_extractor_request)
+    app.router.add_get('/extractor/video.vtt', proxy.handle_extractor_request)
+    app.router.add_get('/extractor/video.aac', proxy.handle_extractor_request)
+    app.router.add_get('/extractor/video.m4a', proxy.handle_extractor_request)
+    app.router.add_get('/extractor/video.webm', proxy.handle_extractor_request)
+    app.router.add_get('/extractor/video.mkv', proxy.handle_extractor_request)
+    app.router.add_get('/extractor/video.avi', proxy.handle_extractor_request)
+    app.router.add_get('/extractor/video.mov', proxy.handle_extractor_request)
     
     # ✅ NUOVO: Route per segmenti con estensioni corrette per compatibilità player
     app.router.add_get('/proxy/hls/segment.ts', proxy.handle_proxy_request)
@@ -138,12 +159,10 @@ def create_app():
         # Special handling for m3u8: read content and return 200 OK (no Range)
         if filename.endswith('.m3u8'):
             try:
-                # Add a small delay/retry read loop if file is being written?
-                # Usually OS allows reading while writing, but empty file is possible.
+                loop = asyncio.get_event_loop()
                 content = ""
                 for _ in range(3):
-                    with open(file_path, 'r', encoding='utf-8') as f:
-                        content = f.read()
+                    content = await loop.run_in_executor(None, lambda: _read_file(file_path))
                     if content:
                         break
                     await asyncio.sleep(0.05)
@@ -181,6 +200,8 @@ def create_app():
 
     # ✅ NUOVO: Endpoint per ottenere l'IP pubblico
     app.router.add_get('/proxy/ip', proxy.handle_proxy_ip)
+    # ✅ Health check endpoint
+    app.router.add_get('/health', lambda r: web.json_response({"status": "ok", "version": APP_VERSION}))
     # Setup recording/DVR routes (only if enabled)
     if DVR_ENABLED:
         setup_recording_routes(app, recording_manager)

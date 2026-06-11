@@ -79,13 +79,13 @@ async def resolve_extractor(self, url: str, request_headers: dict, host: str = N
             elif host == "vixsrc":
                 if key not in self.extractors:
                     self.extractors[key] = VixSrcExtractor(
-                        request_headers, proxies=proxy_list
+                        request_headers, proxies=proxy_list, bypass_warp=bypass_warp
                     )
                 return self.extractors[key]
             elif host == "vixcloud":
                 if key not in self.extractors:
                     self.extractors[key] = VixSrcExtractor(
-                        request_headers, proxies=proxy_list
+                        request_headers, proxies=proxy_list, bypass_warp=bypass_warp
                     )
                 return self.extractors[key]
             elif _is_sportsonline_candidate(host):
@@ -308,7 +308,7 @@ async def resolve_extractor(self, url: str, request_headers: dict, host: str = N
             proxy_list = _build_proxy_list(proxy, "vixsrc")
             if key not in self.extractors:
                 self.extractors[key] = VixSrcExtractor(
-                    request_headers, proxies=proxy_list
+                    request_headers, proxies=proxy_list, bypass_warp=bypass_warp
                 )
             return self.extractors[key]
         elif "vixcloud.co/" in url.lower() and any(
@@ -319,7 +319,7 @@ async def resolve_extractor(self, url: str, request_headers: dict, host: str = N
             proxy_list = _build_proxy_list(proxy, "vixcloud")
             if key not in self.extractors:
                 self.extractors[key] = VixSrcExtractor(
-                    request_headers, proxies=proxy_list
+                    request_headers, proxies=proxy_list, bypass_warp=bypass_warp
                 )
             return self.extractors[key]
         elif _is_sportsonline_candidate(url):

@@ -3,6 +3,7 @@ import logging
 import random
 import socket
 import time
+import asyncio
 import contextvars
 import urllib.request
 from dotenv import load_dotenv
@@ -14,6 +15,7 @@ _PROXY_FILE_TTL = 600
 BYPASS_WARP_CONTEXT = contextvars.ContextVar("bypass_warp", default=False)
 SELECTED_PROXY_CONTEXT = contextvars.ContextVar("selected_proxy", default=None)
 STRICT_PROXY_CONTEXT = contextvars.ContextVar("strict_proxy", default=False)
+PROXY_SOURCE_LIST = contextvars.ContextVar("proxy_source_list", default=None)
 
 load_dotenv()
 
@@ -27,14 +29,15 @@ LOG_LEVEL_MAP = {
     "CRITICAL": logging.CRITICAL,
 }
 LOG_LEVEL = LOG_LEVEL_MAP.get(LOG_LEVEL_STR, logging.WARNING)
-PROXY_TEST_TIMEOUT = int(os.environ.get("PROXY_TEST_TIMEOUT", "5"))
+PROXY_TEST_TIMEOUT = int(os.environ.get("PROXY_TEST_TIMEOUT", "10"))
 cpu_cores = os.cpu_count() or 4
 default_concurrency = 10 if cpu_cores == 1 else min(100, max(30, cpu_cores * 15))
 PROXY_TEST_CONCURRENCY = max(1, int(os.environ.get("PROXY_TEST_CONCURRENCY", str(default_concurrency))))
 
 logging.basicConfig(
     level=LOG_LEVEL,
-    format="%(asctime)s - %(levelname)s - %(message)s",
+    format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
+    force=True,
 )
 
 
@@ -123,15 +126,83 @@ def get_extractor_proxies(extractor_name: str) -> list:
 
 
 def get_preferred_proxy(proxies: list | None) -> str | None:
-    """Return the first alive proxy from an already ordered proxy list."""
-    for proxy in proxies or []:
-        if proxy and is_proxy_alive(proxy):
-            return proxy
+    """Return the first proxy from an ordered list. No alive filtering (use async version for that)."""
+    if not proxies:
+        return None
+    PROXY_SOURCE_LIST.set(proxies)
     if getattr(proxies, "strict", False):
         for proxy in proxies or []:
             if proxy:
                 return proxy
+    result = proxies[0] if proxies else None
+    if result:
+        SELECTED_PROXY_CONTEXT.set(result)
+    return result
+
+
+async def find_first_alive_async(proxies: list, concurrency: int | None = None) -> str | None:
+    """Test proxies in parallel with ThreadPoolExecutor, return first alive. Respects strict flag."""
+    if not proxies:
+        return None
+    if getattr(proxies, "strict", False):
+        return proxies[0]
+    concurrency = concurrency or PROXY_TEST_CONCURRENCY
+    # Filter out globally dead proxies first
+    now = time.time()
+    with _proxy_lock:
+        proxies = [p for p in proxies if p not in DEAD_PROXIES or now >= DEAD_PROXIES.get(p, 0)]
+    if not proxies:
+        return None
+    sem = asyncio.Semaphore(concurrency)
+    loop = asyncio.get_event_loop()
+
+    async def _check(proxy: str) -> str | None:
+        async with sem:
+            try:
+                await loop.run_in_executor(None, _socket_check, proxy, 5)
+                return proxy
+            except (OSError, socket.timeout):
+                return None
+
+    tasks = {asyncio.create_task(_check(p)): p for p in proxies if p}
+    pending = set(tasks.keys())
+    while pending:
+        done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+        for t in done:
+            result = t.result()
+            if result is not None:
+                for pt in pending:
+                    pt.cancel()
+                return result
     return None
+
+
+async def filter_alive_async(proxies: list, concurrency: int | None = None) -> list:
+    """Test all proxies in parallel, return all alive. Respects DEAD_PROXIES."""
+    if not proxies:
+        return []
+    if getattr(proxies, "strict", False):
+        return list(proxies)
+    concurrency = concurrency or PROXY_TEST_CONCURRENCY
+    now = time.time()
+    with _proxy_lock:
+        candidates = [p for p in proxies if p not in DEAD_PROXIES or now >= DEAD_PROXIES.get(p, 0)]
+    if not candidates:
+        return []
+    sem = asyncio.Semaphore(concurrency)
+    loop = asyncio.get_event_loop()
+
+    async def _check(proxy: str):
+        async with sem:
+            try:
+                await loop.run_in_executor(None, _socket_check, proxy, 2)
+                return proxy
+            except (OSError, socket.timeout):
+                return None
+
+    tasks = [asyncio.create_task(_check(p)) for p in candidates if p]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    return [r for r in results if isinstance(r, str)]
 
 
 def get_transport_route_proxy(url: str, transport_routes: list) -> str | None:
@@ -145,7 +216,7 @@ def get_transport_route_proxy(url: str, transport_routes: list) -> str | None:
             proxy_value = route.get("proxy")
             if not proxy_value:
                 return None
-            return proxy_value if is_proxy_alive(proxy_value) else None
+            return proxy_value
     return None
 
 
@@ -163,13 +234,10 @@ def get_ordered_proxies_for_url(
         for proxy in candidates:
             if proxy and proxy not in values:
                 values.append(proxy)
-        if strict:
-            alive = [proxy for proxy in values if is_proxy_alive(proxy)]
-            return ProxyList(alive or values, strict=True)
-        return ProxyList([proxy for proxy in values if is_proxy_alive(proxy)], strict=False)
+        return ProxyList(values, strict=strict)
 
     def add(proxy: str | None):
-        if proxy and proxy not in ordered and is_proxy_alive(proxy):
+        if proxy and proxy not in ordered:
             ordered.append(proxy)
 
     selected_proxy = SELECTED_PROXY_CONTEXT.get()
@@ -218,16 +286,38 @@ def should_allow_direct_fallback(proxies: list | None) -> bool:
     return not active
 
 
-def get_preferred_proxy_for_url(
+async def get_preferred_proxy_for_url(
     url: str | None,
     extractor_name: str = "",
     fallback_proxies: list | None = None,
     bypass_warp: bool | None = None,
 ) -> str | None:
-    """Return the first proxy using the global ordered-priority rules."""
-    return get_preferred_proxy(
-        get_ordered_proxies_for_url(url, extractor_name, fallback_proxies, bypass_warp)
-    )
+    """Return the first alive proxy using parallel test across the ordered priority list."""
+    ordered = get_ordered_proxies_for_url(url, extractor_name, fallback_proxies, bypass_warp)
+    if not ordered:
+        return None
+    PROXY_SOURCE_LIST.set(ordered)
+    result = await find_first_alive_async(ordered)
+    if result:
+        SELECTED_PROXY_CONTEXT.set(result)
+    return result
+
+
+async def get_preferred_proxy_for_url_async(
+    url: str | None,
+    extractor_name: str = "",
+    fallback_proxies: list | None = None,
+    bypass_warp: bool | None = None,
+) -> str | None:
+    """Return the first alive proxy using parallel test across the ordered priority list."""
+    ordered = get_ordered_proxies_for_url(url, extractor_name, fallback_proxies, bypass_warp)
+    if not ordered:
+        return None
+    PROXY_SOURCE_LIST.set(ordered)
+    result = await find_first_alive_async(ordered)
+    if result:
+        SELECTED_PROXY_CONTEXT.set(result)
+    return result
 
 
 def parse_transport_routes() -> list:
@@ -276,6 +366,8 @@ def parse_transport_routes() -> list:
 
 _PROXY_STATUS_CACHE = {"alive": True, "last_check": 0}
 DEAD_PROXIES = {}  # proxy_url -> expire_time
+_proxy_lock = __import__('threading').Lock()  # sync access to DEAD_PROXIES + _PROXY_STATUS_CACHE
+_proxy_async_lock = asyncio.Lock()  # async access to the same structures
 
 
 def is_proxy_alive(proxy_url: str, force_check: bool = False) -> bool:
@@ -284,37 +376,75 @@ def is_proxy_alive(proxy_url: str, force_check: bool = False) -> bool:
         return False
 
     now = time.time()
-    # Check if proxy is globally marked dead
-    if proxy_url in DEAD_PROXIES:
-        expire_time = DEAD_PROXIES[proxy_url]
-        if now < expire_time:
-            return False
-        else:
-            # Dead time has expired
-            DEAD_PROXIES.pop(proxy_url, None)
+    with _proxy_lock:
+        # Check if proxy is globally marked dead
+        if proxy_url in DEAD_PROXIES:
+            expire_time = DEAD_PROXIES[proxy_url]
+            if now < expire_time:
+                return False
+            else:
+                DEAD_PROXIES.pop(proxy_url, None)
 
-    if "127.0.0.1" not in proxy_url:
-        return True
+    force_check = force_check or (proxy_url not in _PROXY_STATUS_CACHE.get("_checked", {}))
+    with _proxy_lock:
+        if not force_check and now - _PROXY_STATUS_CACHE.get("last_check_" + proxy_url, 0) < 10:
+            return _PROXY_STATUS_CACHE.get("alive_" + proxy_url, True)
 
-    if not force_check and now - _PROXY_STATUS_CACHE["last_check"] < 10:
-        return _PROXY_STATUS_CACHE["alive"]
-
-    _PROXY_STATUS_CACHE["last_check"] = now
+        _PROXY_STATUS_CACHE["last_check_" + proxy_url] = now
+        _PROXY_STATUS_CACHE.setdefault("_checked", {})[proxy_url] = True
     try:
-        host = "127.0.0.1"
-        port = 1080
-        if ":" in proxy_url:
-            port_part = proxy_url.split(":")[-1].split("/")[0]
-            if port_part.isdigit():
-                port = int(port_part)
-
-        with socket.create_connection((host, port), timeout=0.5):
-            _PROXY_STATUS_CACHE["alive"] = True
+        from urllib.parse import urlparse
+        parsed = urlparse(proxy_url)
+        host = parsed.hostname or "127.0.0.1"
+        port = parsed.port or 1080
+        with socket.create_connection((host, port), timeout=5):
+            with _proxy_lock:
+                _PROXY_STATUS_CACHE["alive_" + proxy_url] = True
             return True
     except (socket.timeout, ConnectionRefusedError, OSError):
-        _PROXY_STATUS_CACHE["alive"] = False
-        logging.warning(f"Local proxy {proxy_url} is NOT reachable. Falling back to direct connection.")
+        with _proxy_lock:
+            _PROXY_STATUS_CACHE["alive_" + proxy_url] = False
+        logging.warning(f"Proxy {proxy_url} is NOT reachable.")
         return False
+
+
+async def is_proxy_alive_async(proxy_url: str, force_check: bool = False) -> bool:
+    """Async version of is_proxy_alive without blocking the event loop."""
+    if not proxy_url:
+        return False
+    now = time.time()
+    async with _proxy_async_lock:
+        if proxy_url in DEAD_PROXIES:
+            expire_time = DEAD_PROXIES[proxy_url]
+            if now < expire_time:
+                return False
+            else:
+                DEAD_PROXIES.pop(proxy_url, None)
+    async with _proxy_async_lock:
+        if not force_check and now - _PROXY_STATUS_CACHE.get("last_check_async_" + proxy_url, 0) < 10:
+            return _PROXY_STATUS_CACHE.get("alive_async_" + proxy_url, True)
+        _PROXY_STATUS_CACHE["last_check_async_" + proxy_url] = now
+    try:
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, _socket_check, proxy_url, 5)
+        async with _proxy_async_lock:
+            _PROXY_STATUS_CACHE["alive_async_" + proxy_url] = True
+        return True
+    except (socket.timeout, ConnectionRefusedError, OSError):
+        async with _proxy_async_lock:
+            _PROXY_STATUS_CACHE["alive_async_" + proxy_url] = False
+        logging.warning(f"Proxy {proxy_url} is NOT reachable.")
+        return False
+
+
+def _socket_check(proxy_url: str, timeout: float = 5) -> bool:
+    """Synchronous socket check helper for run_in_executor."""
+    from urllib.parse import urlparse
+    parsed = urlparse(proxy_url)
+    host = parsed.hostname or "127.0.0.1"
+    port = parsed.port or 1080
+    with socket.create_connection((host, port), timeout=timeout):
+        return True
 
 
 def mark_proxy_dead(proxy_url: str, dead_duration: int = 300):
@@ -324,17 +454,44 @@ def mark_proxy_dead(proxy_url: str, dead_duration: int = 300):
 
     if WARP_PROXY_URL and proxy_url == WARP_PROXY_URL:
         if "127.0.0.1" in proxy_url:
-            _PROXY_STATUS_CACHE["last_check"] = 0
+            with _proxy_lock:
+                _PROXY_STATUS_CACHE["last_check"] = 0
         logging.warning("WARP proxy %s failure observed; keeping it managed by socket health checks.", proxy_url)
         return
 
     now = time.time()
-    DEAD_PROXIES[proxy_url] = now + dead_duration
+    with _proxy_lock:
+        DEAD_PROXIES[proxy_url] = now + dead_duration
     logging.warning(f"Proxy {proxy_url} marked as dead for {dead_duration} seconds.")
 
     if "127.0.0.1" in proxy_url:
-        _PROXY_STATUS_CACHE["alive"] = False
-        _PROXY_STATUS_CACHE["last_check"] = now
+        with _proxy_lock:
+            _PROXY_STATUS_CACHE["alive"] = False
+            _PROXY_STATUS_CACHE["last_check"] = now
+
+
+_proxy_affinity: dict = {}
+def _get_stream_key(url: str) -> str | None:
+    if not url:
+        return None
+    from urllib.parse import urlparse
+    parsed = urlparse(url)
+    path = parsed.path.rstrip("/")
+    # Use the directory part as stream key
+    if "/" in path:
+        return parsed.netloc + path.rsplit("/", 1)[0]
+    return parsed.netloc + path
+
+
+def _next_from_source(current_proxy: str | None) -> str | None:
+    """Find the next alive proxy from the same source list (extractor, proxy_file, etc.)."""
+    source_list = PROXY_SOURCE_LIST.get()
+    if not source_list:
+        return None
+    for p in source_list:
+        if p != current_proxy and is_proxy_alive(p):
+            return p
+    return None
 
 
 def get_proxy_for_url(url: str, transport_routes: list, global_proxies: list, bypass_warp: bool = None) -> str:
@@ -345,8 +502,13 @@ def get_proxy_for_url(url: str, transport_routes: list, global_proxies: list, by
         selected_proxy = SELECTED_PROXY_CONTEXT.get()
         if selected_proxy and STRICT_PROXY_CONTEXT.get():
             return selected_proxy
-        proxy = random.choice(global_proxies) if global_proxies else None
-        return proxy if is_proxy_alive(proxy) else None
+
+    # Proxy affinity: keep the same proxy for the same stream
+    stream_key = _get_stream_key(url)
+    if stream_key and stream_key in _proxy_affinity:
+        cached_proxy, timestamp = _proxy_affinity[stream_key]
+        if time.time() - timestamp < 120 and is_proxy_alive(cached_proxy):
+            return cached_proxy
 
     normalized_url = url.lower()
 
@@ -361,11 +523,23 @@ def get_proxy_for_url(url: str, transport_routes: list, global_proxies: list, by
                 proxy_value = route.get("proxy")
                 if not proxy_value:
                     return None
+                if stream_key:
+                    _proxy_affinity[stream_key] = (proxy_value, time.time())
+                STRICT_PROXY_CONTEXT.set(True)
+                SELECTED_PROXY_CONTEXT.set(proxy_value)
                 return proxy_value
 
     # Explicit GLOBAL_PROXY wins over WARP. warp=off disables only WARP, not configured proxies.
     proxy = SELECTED_PROXY_CONTEXT.get()
     if proxy and is_proxy_alive(proxy):
+        if stream_key:
+            _proxy_affinity[stream_key] = (proxy, time.time())
+        return proxy
+
+    # Try next alive proxy from the same source list (extractor, proxy_file, etc.)
+    proxy = _next_from_source(proxy)
+    if proxy:
+        SELECTED_PROXY_CONTEXT.set(proxy)
         return proxy
 
     proxy = random.choice(global_proxies) if global_proxies else None
@@ -373,16 +547,42 @@ def get_proxy_for_url(url: str, transport_routes: list, global_proxies: list, by
         SELECTED_PROXY_CONTEXT.set(proxy)
         STRICT_PROXY_CONTEXT.set(False)
 
-    if proxy:
-        return proxy if is_proxy_alive(proxy) else None
+    if proxy and is_proxy_alive(proxy):
+        if stream_key:
+            _proxy_affinity[stream_key] = (proxy, time.time())
+        return proxy
 
     # Check if WARP should be used only when no explicit proxy is configured.
     is_excluded = any(domain in normalized_url for domain in WARP_EXCLUDE_DOMAINS)
 
     if ENABLE_WARP and not bypass_warp and not is_excluded:
-        return WARP_PROXY_URL if is_proxy_alive(WARP_PROXY_URL) else None
+        warp_alive = is_proxy_alive(WARP_PROXY_URL)
+        if warp_alive:
+            if stream_key:
+                _proxy_affinity[stream_key] = (WARP_PROXY_URL, time.time())
+            return WARP_PROXY_URL
+        return None
 
-    return proxy if is_proxy_alive(proxy) else None
+    proxy = SELECTED_PROXY_CONTEXT.get()
+    if proxy and is_proxy_alive(proxy):
+        if stream_key:
+            _proxy_affinity[stream_key] = (proxy, time.time())
+        return proxy
+
+    proxy = _next_from_source(proxy)
+    if proxy:
+        SELECTED_PROXY_CONTEXT.set(proxy)
+        if stream_key:
+            _proxy_affinity[stream_key] = (proxy, time.time())
+        return proxy
+
+    proxy = random.choice(global_proxies) if global_proxies else None
+    if proxy and is_proxy_alive(proxy):
+        if stream_key:
+            _proxy_affinity[stream_key] = (proxy, time.time())
+        return proxy
+
+    return None
 
 
 def get_connector_for_proxy(proxy_url: str, **kwargs):
@@ -401,6 +601,8 @@ def get_connector_for_proxy(proxy_url: str, **kwargs):
     elif connector_url.startswith("socks4a://"):
         connector_url = connector_url.replace("socks4a://", "socks4://")
         rdns = True
+    elif connector_url.startswith("socks4://"):
+        rdns = False
 
     return ProxyConnector.from_url(connector_url, rdns=rdns, **kwargs)
 
@@ -416,6 +618,31 @@ def get_solver_proxy_url(proxy_url: str | None) -> str | None:
         return proxy_url.replace("socks4a://", "socks4://", 1)
 
     return proxy_url
+
+
+def build_proxy_with_auth(proxy_url: str | None) -> dict | None:
+    """Converte un proxy URL in dict con username/password separati.
+
+    Chromium (via Playwright/Scrapling/FlareSolverr) non supporta
+    --proxy-server con credenziali nell'URL. Funziona solo se username
+    e password sono campi separati.
+    """
+    if not proxy_url:
+        return None
+    clean = get_solver_proxy_url(proxy_url)
+    result = {"url": clean}
+    if "@" in clean:
+        try:
+            pp = urllib.parse.urlparse(clean)
+            if pp.username and pp.password:
+                result["username"] = pp.username
+                result["password"] = pp.password
+                result["url"] = f"{pp.scheme}://{pp.hostname}"
+                if pp.port:
+                    result["url"] += f":{pp.port}"
+        except Exception:
+            pass
+    return result
 
 
 def get_ssl_setting_for_url(url: str, transport_routes: list) -> bool:
@@ -442,8 +669,24 @@ def get_ssl_setting_for_url(url: str, transport_routes: list) -> bool:
 
 
 
-ENABLE_WARP = os.environ.get("ENABLE_WARP", "false").lower() == "true"
+_warp_env = os.environ.get("ENABLE_WARP", "").strip().lower()
 WARP_PROXY_URL = os.environ.get("WARP_PROXY_URL", "").strip() or "socks5h://127.0.0.1:1080"
+if _warp_env == "true":
+    ENABLE_WARP = True
+elif _warp_env == "false":
+    ENABLE_WARP = False
+else:
+    ENABLE_WARP = False
+    try:
+        import urllib.request as _ur
+        req = _ur.Request("https://www.cloudflare.com/cdn-cgi/trace",
+                          headers={"User-Agent": "curl/8.0"})
+        body = _ur.urlopen(req, timeout=3).read().decode()
+        if "warp=on" in body:
+            ENABLE_WARP = True
+    except Exception as _warp_e:
+        import logging as _warp_log
+        _warp_log.getLogger("config").debug("WARP auto-detect failed: %s", _warp_e)
 
 _default_warp_exclude_domains = [
     "strem.fun",
@@ -499,7 +742,7 @@ MAX_RECORDING_DURATION = int(os.environ.get("MAX_RECORDING_DURATION", 28800))
 RECORDINGS_RETENTION_DAYS = int(os.environ.get("RECORDINGS_RETENTION_DAYS", 7))
 
 # --- Version/Mode Configuration ---
-APP_VERSION = "2.7.64"
+APP_VERSION = "2.8.17"
 
 _has_solvers = os.path.exists("flaresolverr")
 VERSION_MODE = "Full" if _has_solvers else "Light"

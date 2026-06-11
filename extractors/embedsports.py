@@ -169,7 +169,7 @@ class EmbedSportsExtractor:
             pass
 
     async def _get_session(self, url: str = EMBEDSPORTS_ORIGIN) -> ClientSession:
-        proxy_url = get_preferred_proxy_for_url(
+        proxy_url = await get_preferred_proxy_for_url(
             url, "embedsports", self.proxies or GLOBAL_PROXIES, self.bypass_warp_active
         )
 
@@ -194,7 +194,7 @@ class EmbedSportsExtractor:
         return self.session
 
     async def _launch_browser(self, url: str = EMBEDSPORTS_ORIGIN):
-        proxy_url = get_preferred_proxy_for_url(
+        proxy_url = await get_preferred_proxy_for_url(
             url, "embedsports", self.proxies or GLOBAL_PROXIES, self.bypass_warp_active
         )
         async with self._browser_launch_lock:

@@ -25,13 +25,18 @@ echo Checking FlareSolverr...
 IF NOT EXIST "flaresolverr\" (
     echo Downloading FlareSolverr...
     git clone https://github.com/FlareSolverr/FlareSolverr.git flaresolverr
-    echo Installing FlareSolverr dependencies...
     pushd flaresolverr
     python -m pip install -r requirements.txt --quiet
     popd
+    echo Patching FlareSolverr Chrome flags for RAM saving...
+    python patch_flaresolverr.py
 ) ELSE (
-    :: FlareSolverr already installed, starts lazily on demand
-    echo [OK] FlareSolverr installed, will start on demand
+    echo [OK] FlareSolverr installed, checking for updates...
+    pushd flaresolverr
+    git pull --ff-only
+    popd
+    echo Re-applying Chrome flags patch...
+    python patch_flaresolverr.py
 )
 
 :: --- 4. FlareSolverr is LAZY (starts via Python code when first needed) ---

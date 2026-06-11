@@ -3,7 +3,7 @@ import logging
 import os
 from aiohttp import web
 
-from config import check_password
+from config import check_password, APP_VERSION
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +19,17 @@ def setup_recording_routes(app, recording_manager):
         )
         try:
             with open(template_path, 'r', encoding='utf-8') as f:
-                return web.Response(text=f.read(), content_type='text/html')
+                html_content = f.read()
+            proxy = app.get('proxy')
+            latest_version = getattr(proxy, 'latest_version', 'Unknown') if proxy else 'Unknown'
+            warp_status = getattr(proxy, 'warp_status', 'Unknown') if proxy else 'Unknown'
+            is_outdated = latest_version not in ["Checking...", "Unknown", "Error", APP_VERSION]
+            version_status_class = "outdated" if is_outdated else ""
+            html_content = html_content.replace("{{APP_VERSION}}", APP_VERSION)
+            html_content = html_content.replace("{{LATEST_VERSION}}", latest_version)
+            html_content = html_content.replace("{{VERSION_STATUS_CLASS}}", version_status_class)
+            html_content = html_content.replace("{{WARP_STATUS}}", warp_status)
+            return web.Response(text=html_content, content_type='text/html')
         except FileNotFoundError:
             return web.Response(text="Recordings template not found",
                                status=404)

@@ -48,17 +48,29 @@ class FFmpegManager:
                     return f"{stream_id}/index.m3u8"
                 
                 # File not found but process triggers. It might be initializing.
-                # Wait for it.
+                # Wait for it using asyncio.Event instead of polling
                 logger.info(f"Stream {stream_id} is initializing. Waiting for playlist...")
-                for _ in range(100): # Wait up to 10s
-                    if os.path.exists(playlist_path):
-                        return f"{stream_id}/index.m3u8"
-                    if proc.returncode is not None:
-                         # Process died while waiting
-                         logger.warning(f"Process {stream_id} died while waiting.")
-                         del self.processes[stream_id]
-                         break
-                    await asyncio.sleep(0.1)
+                playlist_ready = asyncio.Event()
+
+                async def _wait_for_playlist():
+                    try:
+                        for _ in range(100):
+                            if os.path.exists(playlist_path):
+                                return
+                            if proc.returncode is not None:
+                                return
+                            await asyncio.sleep(0.1)
+                    finally:
+                        playlist_ready.set()
+
+                asyncio.create_task(_wait_for_playlist())
+                try:
+                    await asyncio.wait_for(playlist_ready.wait(), timeout=10)
+                except asyncio.TimeoutError:
+                    playlist_ready.set()
+
+                if os.path.exists(playlist_path):
+                    return f"{stream_id}/index.m3u8"
                 
                 # If still (running) and no file -> Stale/Stuck?
                 if proc.returncode is None and not os.path.exists(playlist_path):
@@ -183,26 +195,41 @@ class FFmpegManager:
             self.processes[stream_id] = process
             self.active_streams[stream_id] = url
             
-            # Wait for the playlist to appear (up to 30 seconds)
-            for _ in range(300):  # Wait up to 30 seconds
-                if os.path.exists(playlist_path):
-                    log_file.close()
-                    break
-                # Check if process died
-                if process.returncode is not None:
-                    stdout, stderr = await process.communicate()
-                    log_file.write(f"STDERR: {stderr.decode()}\n")
-                    log_file.write(f"STDOUT: {stdout.decode()}\n")
-                    log_file.close()
-                    logger.error(f"FFmpeg process died. Stderr: {stderr.decode()[:500]}")
-                    return None
-                await asyncio.sleep(0.1)
-            else:
-                log_file.close()
-            
+            # Wait for the playlist to appear (up to 30 seconds) using asyncio.Event
+            playlist_ready = asyncio.Event()
+
+            async def _wait_for_playlist():
+                for _ in range(300):
+                    if os.path.exists(playlist_path):
+                        playlist_ready.set()
+                        return
+                    if process.returncode is not None:
+                        playlist_ready.set()
+                        return
+                    await asyncio.sleep(0.1)
+                playlist_ready.set()  # timeout
+
+            asyncio.create_task(_wait_for_playlist())
+            try:
+                await asyncio.wait_for(playlist_ready.wait(), timeout=30)
+            except asyncio.TimeoutError:
+                playlist_ready.set()
+
+            log_file.close()
+
+            if process.returncode is not None:
+                try:
+                    _, stderr_data = await process.communicate()
+                    err_log = os.path.join(stream_dir, "ffmpeg.log")
+                    with open(err_log, "a") as lf:
+                        lf.write(f"STDERR: {stderr_data.decode()[:2000]}\n")
+                    logger.error(f"FFmpeg process died. Stderr: {stderr_data.decode()[:500]}")
+                except Exception:
+                    pass
+                return None
+
             if not os.path.exists(playlist_path):
                  logger.error("Timeout waiting for playlist generation")
-                 # Kill process?
                  try:
                      process.terminate()
                  except Exception:

@@ -109,7 +109,7 @@ class Unbaser(object):
 
         # fill elements 37...61, if necessary
         if 36 < base < 62:
-            if not hasattr(self.ALPHABET, self.ALPHABET[62][:base]):
+            if base not in self.ALPHABET:
                 self.ALPHABET[base] = self.ALPHABET[62][:base]
         # attrs = self.ALPHABET
         # print ', '.join("%s: %s" % item for item in attrs.items())
@@ -142,6 +142,10 @@ class UnpackingError(Exception):
     meaningful description."""
     pass
 
+def _parse_scripts(text):
+    soup = BeautifulSoup(text, "lxml", parse_only=SoupStrainer("script"))
+    return soup.find_all("script")
+
 async def eval_solver(session, url: str, headers: dict, patterns: list[str]) -> str:
     try:
         async with session.get(url, headers=headers) as response:
@@ -163,10 +167,10 @@ async def eval_solver(session, url: str, headers: dict, patterns: list[str]) -> 
                 logger.warning("Video not available at %s: detected '%s'", url, indicator)
                 raise UnpackingError(f"Video not found or unavailable at {url}")
         
-        # Try to find and unpack JavaScript
-        soup = BeautifulSoup(text, "lxml", parse_only=SoupStrainer("script"))
-        script_all = soup.find_all("script")
-        
+        # BS4 parsing is CPU-bound, run in executor
+        loop = asyncio.get_event_loop()
+        script_all = await loop.run_in_executor(None, lambda: _parse_scripts(text))
+
         packed_scripts = []
         for i in script_all:
             if i.text and detect(i.text):

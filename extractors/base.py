@@ -35,7 +35,7 @@ class BaseExtractor:
         
 
     async def _get_session(self, url: str = None):
-        proxy = get_preferred_proxy_for_url(url, self.extractor_name, self.proxies)
+        proxy = await get_preferred_proxy_for_url(url, self.extractor_name, self.proxies)
 
         if (
             self.session is None
@@ -78,9 +78,9 @@ class BaseExtractor:
                 async with session.request(method, url, headers=final_headers, allow_redirects=True, **kwargs) as response:
                     response.raise_for_status()
                     
-                    # ✅ NUOVO: Protezione contro file binari giganti
                     content_type = response.headers.get("Content-Type", "").lower()
-                    content_length = int(response.headers.get("Content-Length", 0))
+                    content_length_str = response.headers.get("Content-Length", "0")
+                    content_length = int(content_length_str) if content_length_str.isdigit() else 0
                     
                     if "video/" in content_type or "audio/" in content_type or content_length > 2 * 1024 * 1024:
                         logger.warning(f"[{self.extractor_name}] Skipping text read for binary/large content: {content_type} ({content_length} bytes)")

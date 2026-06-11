@@ -154,7 +154,7 @@ class SportsonlineExtractor:
 
     async def _get_session(self, url: str = None):
         # Determina il proxy per l'URL (se fornito)
-        proxy = get_preferred_proxy_for_url(url, "sportsonline", self.proxies)
+        proxy = await get_preferred_proxy_for_url(url, "sportsonline", self.proxies)
         if not proxy and not url:
             proxy = self._get_random_proxy()
 

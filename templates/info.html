@@ -1,764 +1,213 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Info - HLS Proxy Server</title>
+    <title>Info - EasyProxy</title>
     <link rel="icon" type="image/x-icon" href="/favicon.ico">
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
 
         :root {
-            /* Dark Theme Colors */
-            --bg-primary: #0a0a0f;
-            --bg-secondary: #151521;
-            --bg-tertiary: #1e1e2e;
-            --bg-card: rgba(30, 30, 46, 0.8);
-            --surface: rgba(255, 255, 255, 0.04);
+            --bg-primary: #09090f;
+            --bg-secondary: #111119;
+            --bg-tertiary: #1a1a28;
+            --surface: rgba(255, 255, 255, 0.03);
             --surface-glass: rgba(255, 255, 255, 0.06);
-            --surface-elevated: rgba(255, 255, 255, 0.08);
-            --surface-code: rgba(40, 40, 70, 0.6);
-
-            /* Modern Dark Gradients */
-            --primary-gradient: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+            --surface-elevated: rgba(255, 255, 255, 0.1);
+            --primary-gradient: linear-gradient(135deg, #6366f1 0%, #a855f7 50%, #ec4899 100%);
             --secondary-gradient: linear-gradient(135deg, #06b6d4 0%, #3b82f6 100%);
             --accent-gradient: linear-gradient(135deg, #10b981 0%, #059669 100%);
-            --warning-gradient: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
-            --danger-gradient: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-            --info-gradient: linear-gradient(135deg, #06b6d4 0%, #0891b2 100%);
-            --neon-gradient: linear-gradient(45deg, #00f5ff, #bf00ff, #ffff00, #bf00ff, #00f5ff);
-
-            /* Status Colors */
-            --status-online: #10b981;
-            --status-warning: #f59e0b;
-            --status-error: #ef4444;
-            --status-info: #06b6d4;
+            --neon-gradient: linear-gradient(90deg, #06b6d4, #a855f7, #ec4899, #a855f7, #06b6d4);
+            --accent-primary: #6366f1;
+            --accent-secondary: #a855f7;
+            --accent-success: #10b981;
+            --accent-warning: #f59e0b;
+            --accent-error: #ef4444;
+            --accent-info: #06b6d4;
             --neon-green: #39ff14;
-            --neon-blue: #00f5ff;
-            --neon-purple: #bf00ff;
-
-            /* Text Colors */
             --text-primary: #ffffff;
             --text-secondary: #a1a1aa;
-            --text-muted: #71717a;
+            --text-muted: #6b6b80;
             --text-accent: #e4e4e7;
-            --text-inverse: #0a0a0f;
-            --text-code: #e879f9;
-            --text-link: #60a5fa;
-
-            /* Border & Effects */
             --border-primary: rgba(255, 255, 255, 0.08);
             --border-accent: rgba(255, 255, 255, 0.15);
-            --border-success: rgba(16, 185, 129, 0.3);
-            --glow-primary: 0 0 25px rgba(99, 102, 241, 0.2);
-            --glow-secondary: 0 0 35px rgba(139, 92, 246, 0.3);
-            --glow-success: 0 0 25px rgba(16, 185, 129, 0.3);
-            --glow-neon: 0 0 50px rgba(0, 245, 255, 0.4);
-            --shadow-dark: 0 20px 40px rgba(0, 0, 0, 0.4);
-            --shadow-card: 0 8px 32px rgba(0, 0, 0, 0.2);
-
-            /* Animation */
+            --glow-primary: 0 0 30px rgba(99, 102, 241, 0.25);
+            --glow-secondary: 0 0 40px rgba(168, 85, 247, 0.3);
+            --glow-success: 0 0 30px rgba(16, 185, 129, 0.25);
+            --shadow-dark: 0 25px 60px -15px rgba(0, 0, 0, 0.8);
+            --shadow-glow: 0 0 80px rgba(99, 102, 241, 0.1);
             --transition-fast: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
             --transition-normal: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
             --transition-slow: all 0.6s cubic-bezier(0.4, 0, 0.2, 1);
-
-            /* Measurements */
-            --border-radius: 14px;
-            --border-radius-large: 20px;
-            --spacing-xs: 0.25rem;
-            --spacing-sm: 0.5rem;
-            --spacing-md: 1rem;
-            --spacing-lg: 1.5rem;
-            --spacing-xl: 2rem;
-            --spacing-2xl: 3rem;
+            --border-radius: 16px;
+            --border-radius-large: 24px;
         }
 
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
 
         body {
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
             background: var(--bg-primary);
             color: var(--text-primary);
-            line-height: 1.6;
+            min-height: 100vh;
             overflow-x: hidden;
-            position: relative;
         }
 
-        /* Animated Background Particles */
         body::before {
             content: '';
             position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
+            top: -40%; left: -20%;
+            width: 140%; height: 140%;
             background:
-                radial-gradient(circle at 15% 30%, rgba(99, 102, 241, 0.1) 0%, transparent 50%),
-                radial-gradient(circle at 85% 60%, rgba(139, 92, 246, 0.08) 0%, transparent 50%),
-                radial-gradient(circle at 50% 90%, rgba(6, 182, 212, 0.06) 0%, transparent 50%);
-            animation: particleFloat 30s ease-in-out infinite;
-            z-index: -1;
+                radial-gradient(ellipse at 20% 50%, rgba(99, 102, 241, 0.12) 0%, transparent 50%),
+                radial-gradient(ellipse at 80% 20%, rgba(168, 85, 247, 0.1) 0%, transparent 50%),
+                radial-gradient(ellipse at 50% 80%, rgba(6, 182, 212, 0.08) 0%, transparent 50%);
+            animation: bgFloat 30s ease-in-out infinite;
+            z-index: 0;
+            pointer-events: none;
         }
 
-        @keyframes particleFloat {
+        body::after {
+            content: '';
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background:
+                radial-gradient(circle at 15% 85%, rgba(236, 73, 153, 0.06) 0%, transparent 40%),
+                radial-gradient(circle at 85% 15%, rgba(6, 182, 212, 0.05) 0%, transparent 40%),
+                radial-gradient(circle at 50% 50%, rgba(99, 102, 241, 0.04) 0%, transparent 50%);
+            animation: particleDrift 20s ease-in-out infinite alternate;
+            z-index: 0;
+            pointer-events: none;
+        }
 
-            0%,
-            100% {
-                transform: translateY(0) rotate(0deg) scale(1);
-                opacity: 0.8;
-            }
+        @keyframes bgFloat {
+            0%, 100% { transform: translateY(0) scale(1); }
+            33% { transform: translateY(-20px) scale(1.02); }
+            66% { transform: translateY(20px) scale(0.98); }
+        }
 
-            33% {
-                transform: translateY(-15px) rotate(2deg) scale(1.02);
-                opacity: 1;
-            }
-
-            66% {
-                transform: translateY(15px) rotate(-2deg) scale(0.98);
-                opacity: 0.9;
-            }
+        @keyframes particleDrift {
+            0% { transform: translate(0, 0) rotate(0deg); opacity: 0.6; }
+            100% { transform: translate(30px, -30px) rotate(5deg); opacity: 1; }
         }
 
         .container {
             max-width: 1200px;
             margin: 0 auto;
-            padding: var(--spacing-lg);
+            padding: 2rem 1.5rem;
+            position: relative;
+            z-index: 1;
         }
 
-        /* Header Styles */
         .header {
             text-align: center;
-            margin-bottom: var(--spacing-2xl);
-            padding: var(--spacing-2xl) 0;
+            margin-bottom: 3rem;
+            padding-top: 3rem;
+        }
+
+        .hero-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: var(--surface-glass);
+            border: 1px solid var(--border-primary);
+            border-radius: 50px;
+            padding: 6px 16px 6px 8px;
+            backdrop-filter: blur(20px);
+            margin-bottom: 2rem;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            transition: var(--transition-normal);
+            cursor: default;
+        }
+
+        .hero-badge:hover {
+            border-color: var(--border-accent);
+            box-shadow: var(--glow-primary);
+        }
+
+        .hero-badge-dot {
+            width: 8px; height: 8px;
+            background: var(--neon-green);
+            border-radius: 50%;
+            box-shadow: 0 0 12px var(--neon-green);
+            animation: dotPulse 2s ease-in-out infinite;
+        }
+
+        @keyframes dotPulse {
+            0%, 100% { box-shadow: 0 0 8px var(--neon-green); }
+            50% { box-shadow: 0 0 20px var(--neon-green), 0 0 30px var(--neon-green); }
         }
 
         .main-title {
-            font-size: clamp(2.5rem, 5vw, 4rem);
-            font-weight: 700;
+            font-size: clamp(3rem, 8vw, 5rem);
+            font-weight: 900;
+            letter-spacing: -0.03em;
+            line-height: 1.05;
+            margin-bottom: 0.75rem;
             background: var(--neon-gradient);
-            background-size: 400% 400%;
+            background-size: 300% 300%;
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
-            margin-bottom: var(--spacing-md);
-            animation: neonPulse 4s ease-in-out infinite;
+            animation: gradientShift 4s ease-in-out infinite;
         }
 
-        @keyframes neonPulse {
-
-            0%,
-            100% {
-                background-position: 0% 50%;
-            }
-
-            50% {
-                background-position: 100% 50%;
-            }
+        @keyframes gradientShift {
+            0%, 100% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
         }
 
-        .status-banner {
-            display: inline-flex;
-            align-items: center;
-            gap: var(--spacing-sm);
-            background: var(--surface-glass);
-            border: 1px solid var(--border-success);
-            border-radius: 50px;
-            padding: var(--spacing-sm) var(--spacing-lg);
-            backdrop-filter: blur(20px);
-            box-shadow: var(--glow-success);
-            animation: statusPulse 2s ease-in-out infinite;
-        }
-
-        @keyframes statusPulse {
-
-            0%,
-            100% {
-                transform: scale(1);
-                box-shadow: var(--glow-success);
-            }
-
-            50% {
-                transform: scale(1.02);
-                box-shadow: 0 0 35px rgba(16, 185, 129, 0.4);
-            }
-        }
-
-        .status-indicator {
-            width: 10px;
-            height: 10px;
-            background: var(--neon-green);
-            border-radius: 50%;
-            box-shadow: 0 0 15px var(--neon-green);
-            animation: statusGlow 1.5s ease-in-out infinite alternate;
-        }
-
-        @keyframes statusGlow {
-            from {
-                box-shadow: 0 0 10px var(--neon-green);
-                transform: scale(1);
-            }
-
-            to {
-                box-shadow: 0 0 25px var(--neon-green), 0 0 35px var(--neon-green);
-                transform: scale(1.1);
-            }
-        }
-
-        /* Navigation */
-        .nav-section {
-            display: flex;
-            justify-content: center;
-            gap: var(--spacing-md);
-            margin-bottom: var(--spacing-2xl);
-            flex-wrap: wrap;
-        }
-
-        .nav-button {
-            display: inline-flex;
-            align-items: center;
-            gap: var(--spacing-sm);
-            padding: var(--spacing-md) var(--spacing-lg);
-            background: var(--surface-glass);
-            border: 1px solid var(--border-primary);
-            border-radius: var(--border-radius);
-            color: var(--text-primary);
-            text-decoration: none;
-            font-weight: 500;
-            transition: var(--transition-normal);
-            backdrop-filter: blur(20px);
-            position: relative;
-            overflow: hidden;
-        }
-
-        .nav-button::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: -100%;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
-            transition: var(--transition-fast);
-        }
-
-        .nav-button:hover::before {
-            left: 100%;
-        }
-
-        .nav-button:hover {
-            background: var(--surface-elevated);
-            border-color: var(--border-accent);
-            transform: translateY(-2px);
-            box-shadow: var(--glow-primary);
-        }
-
-        /* Content Grid */
-        .content-grid {
-            display: grid;
-            gap: var(--spacing-xl);
-            margin-bottom: var(--spacing-2xl);
-        }
-
-        /* Section Cards */
-        .section-card {
-            background: var(--bg-card);
-            border: 1px solid var(--border-primary);
-            border-radius: var(--border-radius-large);
-            padding: var(--spacing-xl);
-            backdrop-filter: blur(25px);
-            box-shadow: var(--shadow-card);
-            transition: var(--transition-normal);
-            position: relative;
-            overflow: hidden;
-            animation: slideUp 0.6s ease-out;
-        }
-
-        @keyframes slideUp {
-            from {
-                opacity: 0;
-                transform: translateY(30px);
-            }
-
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-
-        .section-card::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 2px;
-            background: var(--primary-gradient);
-            transform: scaleX(0);
-            transition: var(--transition-normal);
-        }
-
-        .section-card:hover {
-            border-color: var(--border-accent);
-            box-shadow: var(--shadow-card), var(--glow-primary);
-            transform: translateY(-4px);
-        }
-
-        .section-card:hover::before {
-            transform: scaleX(1);
-        }
-
-        .section-title {
-            display: flex;
-            align-items: center;
-            gap: var(--spacing-md);
-            font-size: 1.5rem;
-            font-weight: 600;
-            margin-bottom: var(--spacing-lg);
-            color: var(--text-primary);
-        }
-
-        .section-icon {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            width: 50px;
-            height: 50px;
-            border-radius: 12px;
-            background: var(--primary-gradient);
-            font-size: 1.25rem;
-            color: white;
-            box-shadow: var(--glow-primary);
-        }
-
-        /* Endpoint Cards */
-        .endpoint-card {
-            background: var(--surface);
-            border: 1px solid var(--border-primary);
-            border-radius: var(--border-radius);
-            padding: var(--spacing-lg);
-            margin-bottom: var(--spacing-md);
-            transition: var(--transition-normal);
-            position: relative;
-            overflow: hidden;
-        }
-
-        .endpoint-card::before {
-            content: '';
-            position: absolute;
-            left: 0;
-            top: 0;
-            width: 4px;
-            height: 100%;
-            background: var(--accent-gradient);
-            transform: scaleY(0);
-            transition: var(--transition-normal);
-        }
-
-        .endpoint-card:hover {
-            background: var(--surface-elevated);
-            border-color: var(--border-accent);
-            transform: translateX(4px);
-        }
-
-        .endpoint-card:hover::before {
-            transform: scaleY(1);
-        }
-
-        .endpoint-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: var(--spacing-md);
-            flex-wrap: wrap;
-            gap: var(--spacing-sm);
-        }
-
-        .endpoint-method {
-            display: inline-flex;
-            align-items: center;
-            gap: var(--spacing-xs);
-            padding: var(--spacing-xs) var(--spacing-sm);
-            background: var(--success-gradient);
-            color: white;
-            border-radius: 6px;
-            font-size: 0.75rem;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }
-
-        .endpoint-path {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 1rem;
-            color: var(--text-code);
-            background: var(--surface-code);
-            padding: var(--spacing-xs) var(--spacing-sm);
-            border-radius: 6px;
-            border: 1px solid var(--border-primary);
-            word-break: break-all;
-        }
-
-        .endpoint-description {
+        .header-subtitle {
+            font-size: 1.1rem;
             color: var(--text-secondary);
-            margin-bottom: var(--spacing-md);
+            max-width: 500px;
+            margin: 0 auto 1.5rem;
             line-height: 1.6;
         }
 
-        /* Feature Lists */
-        .feature-list {
-            list-style: none;
-            padding: 0;
-        }
-
-        .feature-item {
+        .version-info-row {
             display: flex;
-            align-items: flex-start;
-            gap: var(--spacing-sm);
-            padding: var(--spacing-sm) 0;
-            border-bottom: 1px solid var(--border-primary);
-            color: var(--text-secondary);
-            font-size: 0.9rem;
-            transition: var(--transition-fast);
-        }
-
-        .feature-item:last-child {
-            border-bottom: none;
-        }
-
-        .feature-item:hover {
-            color: var(--text-primary);
-            padding-left: var(--spacing-sm);
-        }
-
-        .feature-bullet {
-            color: var(--status-online);
-            font-weight: bold;
-            min-width: 16px;
-        }
-
-        /* Code Blocks */
-        .code-block {
-            background: var(--surface-code);
-            border: 1px solid var(--border-primary);
-            border-radius: var(--border-radius);
-            padding: var(--spacing-lg);
-            margin: var(--spacing-md) 0;
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 0.85rem;
-            color: var(--text-code);
-            overflow-x: auto;
-            position: relative;
-        }
-
-        .code-block::before {
-            content: 'CODE';
-            position: absolute;
-            top: var(--spacing-sm);
-            right: var(--spacing-sm);
-            font-size: 0.7rem;
-            color: var(--text-muted);
-            font-weight: 600;
-        }
-
-        /* Example Blocks */
-        .example-block {
-            background: var(--surface);
-            border: 1px solid var(--border-primary);
-            border-left: 4px solid var(--status-info);
-            border-radius: var(--border-radius);
-            padding: var(--spacing-lg);
-            margin: var(--spacing-md) 0;
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 0.85rem;
-            color: var(--text-secondary);
-            position: relative;
-        }
-
-        .example-block::before {
-            content: 'ESEMPIO';
-            position: absolute;
-            top: var(--spacing-sm);
-            right: var(--spacing-sm);
-            font-size: 0.7rem;
-            color: var(--status-info);
-            font-weight: 600;
-        }
-
-        /* Tags */
-        .tag {
-            display: inline-flex;
             align-items: center;
-            gap: var(--spacing-xs);
-            padding: var(--spacing-xs) var(--spacing-sm);
-            border-radius: 20px;
-            font-size: 0.75rem;
-            font-weight: 500;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            margin-right: var(--spacing-xs);
-            margin-bottom: var(--spacing-xs);
+            justify-content: center;
+            gap: 8px;
+            flex-wrap: wrap;
         }
 
-        .tag-primary {
-            background: var(--primary-gradient);
-            color: white;
-            box-shadow: var(--glow-primary);
-        }
-
-        .tag-success {
-            background: var(--accent-gradient);
-            color: white;
-            box-shadow: var(--glow-success);
-        }
-
-        .tag-info {
-            background: var(--info-gradient);
-            color: white;
-        }
-
-        .tag-warning {
-            background: var(--warning-gradient);
-            color: white;
-        }
-
-        /* Architecture Section */
-        .architecture-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: var(--spacing-lg);
-            margin-top: var(--spacing-lg);
-        }
-
-        .arch-card {
-            background: var(--surface);
-            border: 1px solid var(--border-primary);
-            border-radius: var(--border-radius);
-            padding: var(--spacing-lg);
-            text-align: center;
-            transition: var(--transition-normal);
-        }
-
-        .arch-card:hover {
-            background: var(--surface-elevated);
-            border-color: var(--border-accent);
-            transform: translateY(-4px);
-        }
-
-        .arch-icon {
-            font-size: 2rem;
-            margin-bottom: var(--spacing-md);
-        }
-
-        .arch-title {
-            font-weight: 600;
-            margin-bottom: var(--spacing-sm);
-            color: var(--text-primary);
-        }
-
-        .arch-description {
-            color: var(--text-secondary);
-            font-size: 0.9rem;
-            line-height: 1.5;
-        }
-
-        /* Performance Metrics */
-        .metrics-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: var(--spacing-md);
-            margin-top: var(--spacing-lg);
-        }
-
-        .metric-card {
-            background: var(--surface-glass);
-            border: 1px solid var(--border-primary);
-            border-radius: var(--border-radius);
-            padding: var(--spacing-lg);
-            text-align: center;
-            backdrop-filter: blur(20px);
-            transition: var(--transition-normal);
-        }
-
-        .metric-card:hover {
-            border-color: var(--border-accent);
-            box-shadow: var(--glow-primary);
-        }
-
-        .metric-value {
-            font-size: 1.5rem;
-            font-weight: 700;
-            color: var(--text-primary);
-            margin-bottom: var(--spacing-xs);
-        }
-
-        .metric-label {
-            color: var(--text-secondary);
-            font-size: 0.85rem;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }
-
-        /* Responsive Design */
-        @media (max-width: 768px) {
-            .container {
-                padding: var(--spacing-md);
-            }
-
-            .nav-section {
-                flex-direction: column;
-                align-items: center;
-            }
-
-            .nav-button {
-                width: 100%;
-                max-width: 300px;
-                justify-content: center;
-            }
-
-            .endpoint-header {
-                flex-direction: column;
-                align-items: flex-start;
-            }
-        }
-
-        /* Scrollbar Styling */
-        ::-webkit-scrollbar {
-            width: 10px;
-        }
-
-        ::-webkit-scrollbar-track {
-            background: var(--bg-secondary);
-            border-radius: 5px;
-        }
-
-        ::-webkit-scrollbar-thumb {
-            background: var(--surface-elevated);
-            border-radius: 5px;
-        }
-
-        ::-webkit-scrollbar-thumb:hover {
-            background: var(--border-accent);
-        }
-
-        /* Animation delays for cards */
-        .section-card:nth-child(1) {
-            animation-delay: 0.1s;
-        }
-
-        .section-card:nth-child(2) {
-            animation-delay: 0.2s;
-        }
-
-        .section-card:nth-child(3) {
-            animation-delay: 0.3s;
-        }
-
-        .section-card:nth-child(4) {
-            animation-delay: 0.4s;
-        }
-
-        /* Focus states for accessibility */
-        .nav-button:focus,
-        .endpoint-card:focus {
-            outline: 2px solid var(--accent-primary);
-            outline-offset: 2px;
-        }
-
-        /* Table Styles for API Reference */
-        .api-table {
-            width: 100%;
-            border-collapse: separate;
-            border-spacing: 0;
-            margin: var(--spacing-md) 0 var(--spacing-xl) 0;
-            font-size: 0.9rem;
-        }
-
-        .api-table th {
-            text-align: left;
-            padding: var(--spacing-md);
-            background: var(--surface-elevated);
-            color: var(--text-primary);
-            font-weight: 600;
-            border-bottom: 2px solid var(--border-primary);
-        }
-
-        .api-table td {
-            text-align: left;
-            padding: var(--spacing-md);
-            border-bottom: 1px solid var(--border-primary);
-            color: var(--text-secondary);
-            vertical-align: top;
-        }
-
-        .api-table tr:last-child td {
-            border-bottom: none;
-        }
-
-        .api-table tr:hover td {
-            background: var(--surface-glass);
-            color: var(--text-primary);
-        }
-
-        .method-tag {
-            display: inline-block;
-            padding: 2px 8px;
-            border-radius: 4px;
-            font-size: 0.75rem;
-            font-weight: 600;
-            text-transform: uppercase;
-        }
-
-        .method-get {
-            background: rgba(59, 130, 246, 0.2);
-            color: #60a5fa;
-            border: 1px solid rgba(59, 130, 246, 0.3);
-        }
-
-        .method-post {
-            background: rgba(16, 185, 129, 0.2);
-            color: #34d399;
-            border: 1px solid rgba(16, 185, 129, 0.3);
-        }
-
-        .method-delete {
-            background: rgba(239, 68, 68, 0.2);
-            color: #f87171;
-            border: 1px solid rgba(239, 68, 68, 0.3);
-        }
-
-        .version-info {
+        .version-chip {
             display: flex;
             align-items: center;
             gap: 6px;
             font-size: 0.75rem;
             color: var(--text-secondary);
-            background: rgba(255, 255, 255, 0.05);
-            padding: 2px 10px;
+            background: var(--surface-glass);
+            padding: 4px 14px;
             border-radius: 20px;
             border: 1px solid var(--border-primary);
         }
 
         .version-latest {
-            color: var(--status-online);
+            color: var(--accent-success);
             font-weight: 600;
-            transition: var(--transition-normal);
         }
 
         .version-latest.outdated {
-            color: var(--status-error);
-            animation: versionPulse 2s infinite;
-            text-shadow: 0 0 5px rgba(239, 68, 68, 0.4);
+            color: var(--accent-error);
+            animation: errPulse 2s infinite;
         }
 
-        .warp-badge {
-            margin-left: 6px;
-            padding: 2px 10px;
+        @keyframes errPulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.6; }
+        }
+
+        .warp-chip {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            padding: 4px 14px;
             border-radius: 20px;
             background: rgba(37, 99, 235, 0.1);
             color: #3b82f6;
@@ -767,995 +216,573 @@
             text-transform: uppercase;
             letter-spacing: 0.5px;
             border: 1px solid rgba(37, 99, 235, 0.2);
-            display: flex;
-            align-items: center;
-            gap: 4px;
         }
 
-        .warp-badge::before {
+        .warp-chip::before {
             content: "";
-            display: inline-block;
-            width: 6px;
-            height: 6px;
+            width: 6px; height: 6px;
             border-radius: 50%;
             background: currentColor;
         }
 
-        @keyframes versionPulse {
-            0% { opacity: 1; transform: scale(1); }
-            50% { opacity: 0.7; transform: scale(1.05); }
-            100% { opacity: 1; transform: scale(1); }
+        .nav-section {
+            display: flex;
+            justify-content: center;
+            gap: 1rem;
+            margin-bottom: 3rem;
+            flex-wrap: wrap;
+        }
+
+        .nav-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 0.85rem 1.75rem;
+            background: var(--surface-glass);
+            border: 1px solid var(--border-primary);
+            border-radius: var(--border-radius);
+            color: var(--text-primary);
+            text-decoration: none;
+            font-weight: 500;
+            font-size: 0.9rem;
+            transition: var(--transition-normal);
+            backdrop-filter: blur(20px);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .nav-btn::before {
+            content: '';
+            position: absolute;
+            top: 0; left: -100%;
+            width: 100%; height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+            transition: var(--transition-fast);
+        }
+
+        .nav-btn:hover::before { left: 100%; }
+
+        .nav-btn:hover {
+            background: var(--surface-elevated);
+            border-color: var(--border-accent);
+            transform: translateY(-2px);
+            box-shadow: var(--glow-primary);
+        }
+
+        .content-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 2rem;
+        }
+
+        .section-card {
+            background: var(--surface-glass);
+            border: 1px solid var(--border-primary);
+            border-radius: var(--border-radius-large);
+            padding: 2rem;
+            backdrop-filter: blur(20px);
+            transition: var(--transition-normal);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .section-card::after {
+            content: '';
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 2px;
+            background: var(--primary-gradient);
+            transform: scaleX(0);
+            transition: var(--transition-normal);
+            transform-origin: left;
+        }
+
+        .section-card:hover {
+            transform: translateY(-4px);
+            border-color: var(--border-accent);
+            box-shadow: var(--glow-primary), var(--shadow-dark);
+            background: var(--surface-elevated);
+        }
+
+        .section-card:hover::after { transform: scaleX(1); }
+
+        .section-title {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 1.4rem;
+            font-weight: 700;
+            margin-bottom: 1.5rem;
+            color: var(--text-primary);
+        }
+
+        .section-icon {
+            width: 44px; height: 44px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.25rem;
+            background: var(--surface-elevated);
+            border: 1px solid var(--border-primary);
+            flex-shrink: 0;
+        }
+
+        .section-card:hover .section-icon {
+            background: var(--primary-gradient);
+            border-color: transparent;
+            box-shadow: var(--glow-primary);
+        }
+
+        .endpoint-card {
+            background: var(--surface);
+            border: 1px solid var(--border-primary);
+            border-radius: var(--border-radius);
+            padding: 1.5rem;
+            margin-bottom: 1rem;
+            transition: var(--transition-normal);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .endpoint-card::before {
+            content: '';
+            position: absolute;
+            left: 0; top: 0;
+            width: 3px; height: 100%;
+            background: var(--primary-gradient);
+            transform: scaleY(0);
+            transition: var(--transition-normal);
+            transform-origin: top;
+        }
+
+        .endpoint-card:hover {
+            background: var(--surface-glass);
+            border-color: var(--border-accent);
+            transform: translateX(4px);
+        }
+
+        .endpoint-card:hover::before { transform: scaleY(1); }
+
+        .endpoint-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 0.75rem;
+            flex-wrap: wrap;
+        }
+
+        .endpoint-method {
+            display: inline-flex;
+            align-items: center;
+            padding: 3px 10px;
+            border-radius: 6px;
+            font-size: 0.7rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            border: 1px solid;
+        }
+
+        .method-get {
+            background: rgba(59, 130, 246, 0.15);
+            color: #60a5fa;
+            border-color: rgba(59, 130, 246, 0.3);
+        }
+
+        .method-post {
+            background: rgba(16, 185, 129, 0.15);
+            color: #34d399;
+            border-color: rgba(16, 185, 129, 0.3);
+        }
+
+        .method-delete {
+            background: rgba(239, 68, 68, 0.15);
+            color: #f87171;
+            border-color: rgba(239, 68, 68, 0.3);
+        }
+
+        .method-getpost {
+            background: rgba(168, 85, 247, 0.15);
+            color: #c084fc;
+            border-color: rgba(168, 85, 247, 0.3);
+        }
+
+        .endpoint-path {
+            font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+            font-size: 0.9rem;
+            color: var(--accent-info);
+            background: var(--surface);
+            padding: 4px 10px;
+            border-radius: 6px;
+            border: 1px solid var(--border-primary);
+            word-break: break-all;
+        }
+
+        .endpoint-description {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            line-height: 1.6;
+            margin-bottom: 0.75rem;
+        }
+
+        .feature-list {
+            list-style: none;
+            padding: 0;
+        }
+
+        .feature-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            padding: 6px 0;
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            line-height: 1.5;
+            transition: var(--transition-fast);
+            border-bottom: 1px solid var(--border-primary);
+        }
+
+        .feature-item:last-child { border-bottom: none; }
+
+        .feature-item:hover {
+            color: var(--text-primary);
+            padding-left: 4px;
+        }
+
+        .feature-bullet {
+            color: var(--accent-success);
+            font-weight: bold;
+            flex-shrink: 0;
+        }
+
+        .feature-item strong {
+            color: var(--text-accent);
+        }
+
+        .feature-item code {
+            color: var(--accent-info);
+            font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+            font-size: 0.8rem;
+            background: var(--surface);
+            padding: 1px 5px;
+            border-radius: 4px;
+        }
+
+        .code-block {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-primary);
+            border-radius: var(--border-radius);
+            padding: 1.25rem;
+            margin: 0.75rem 0;
+            font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+            font-size: 0.8rem;
+            color: var(--accent-info);
+            overflow-x: auto;
+            position: relative;
+            line-height: 1.6;
+        }
+
+        .code-block::before {
+            content: 'CODE';
+            position: absolute;
+            top: 10px; right: 12px;
+            font-size: 0.6rem;
+            color: var(--text-muted);
+            font-weight: 600;
+            letter-spacing: 0.05em;
+        }
+
+        .example-block {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-primary);
+            border-left: 3px solid var(--accent-info);
+            border-radius: var(--border-radius);
+            padding: 1rem 1.25rem;
+            margin: 0.75rem 0;
+            font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            position: relative;
+            line-height: 1.6;
+            word-break: break-all;
+        }
+
+        .example-block::before {
+            content: 'EXAMPLE';
+            position: absolute;
+            top: 10px; right: 12px;
+            font-size: 0.6rem;
+            color: var(--accent-info);
+            font-weight: 600;
+            letter-spacing: 0.05em;
+        }
+
+        .tag {
+            display: inline-flex;
+            align-items: center;
+            padding: 3px 10px;
+            border-radius: 20px;
+            font-size: 0.7rem;
+            font-weight: 500;
+            margin: 2px;
+            border: 1px solid var(--border-primary);
+        }
+
+        .tag-primary {
+            background: rgba(99, 102, 241, 0.15);
+            color: #818cf8;
+            border-color: rgba(99, 102, 241, 0.3);
+        }
+
+        .tag-success {
+            background: rgba(16, 185, 129, 0.15);
+            color: #34d399;
+            border-color: rgba(16, 185, 129, 0.3);
+        }
+
+        .tag-info {
+            background: rgba(6, 182, 212, 0.15);
+            color: #22d3ee;
+            border-color: rgba(6, 182, 212, 0.3);
+        }
+
+        .tag-warning {
+            background: rgba(245, 158, 11, 0.15);
+            color: #fbbf24;
+            border-color: rgba(245, 158, 11, 0.3);
+        }
+
+        .tag-accent {
+            background: rgba(168, 85, 247, 0.15);
+            color: #c084fc;
+            border-color: rgba(168, 85, 247, 0.3);
+        }
+
+        .tag-danger {
+            background: rgba(239, 68, 68, 0.15);
+            color: #f87171;
+            border-color: rgba(239, 68, 68, 0.3);
+        }
+
+        .tag-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+            margin-top: 0.75rem;
+        }
+
+        .api-table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            margin: 1rem 0;
+            font-size: 0.85rem;
+        }
+
+        .api-table th {
+            text-align: left;
+            padding: 0.85rem 1rem;
+            background: var(--surface-elevated);
+            color: var(--text-primary);
+            font-weight: 600;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            border-bottom: 2px solid var(--border-primary);
+        }
+
+        .api-table th:first-child { border-radius: 8px 0 0 0; }
+        .api-table th:last-child { border-radius: 0 8px 0 0; }
+
+        .api-table td {
+            padding: 0.85rem 1rem;
+            border-bottom: 1px solid var(--border-primary);
+            color: var(--text-secondary);
+            vertical-align: top;
+        }
+
+        .api-table tr:last-child td { border-bottom: none; }
+
+        .api-table tr:hover td {
+            background: var(--surface-glass);
+            color: var(--text-primary);
+        }
+
+        .api-table td code {
+            color: var(--accent-info);
+            font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+            font-size: 0.8rem;
+        }
+
+        .api-table td:first-child code {
+            color: var(--text-accent);
+        }
+
+        .table-section-title {
+            color: var(--text-primary);
+            font-size: 1rem;
+            font-weight: 600;
+            margin: 1.5rem 0 0.5rem 0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .architecture-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+
+        .arch-card {
+            background: var(--surface);
+            border: 1px solid var(--border-primary);
+            border-radius: var(--border-radius);
+            padding: 1.5rem;
+            text-align: center;
+            transition: var(--transition-normal);
+        }
+
+        .arch-card:hover {
+            background: var(--surface-glass);
+            border-color: var(--border-accent);
+            transform: translateY(-4px);
+            box-shadow: var(--glow-primary);
+        }
+
+        .arch-icon {
+            font-size: 1.75rem;
+            margin-bottom: 0.75rem;
+        }
+
+        .arch-title {
+            font-weight: 600;
+            margin-bottom: 0.25rem;
+            color: var(--text-primary);
+            font-size: 0.9rem;
+        }
+
+        .arch-desc {
+            color: var(--text-muted);
+            font-size: 0.8rem;
+            line-height: 1.5;
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 1rem;
+            margin: 1rem 0;
+        }
+
+        .metric-card {
+            background: var(--surface);
+            border: 1px solid var(--border-primary);
+            border-radius: var(--border-radius);
+            padding: 1.5rem;
+            text-align: center;
+            transition: var(--transition-normal);
+        }
+
+        .metric-card:hover {
+            border-color: var(--border-accent);
+            box-shadow: var(--glow-primary);
+            background: var(--surface-glass);
+        }
+
+        .metric-value {
+            font-size: 1.4rem;
+            font-weight: 800;
+            background: var(--primary-gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 0.25rem;
+        }
+
+        .metric-label {
+            color: var(--text-muted);
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .footer {
+            margin-top: 4rem;
+            padding-top: 2rem;
+            border-top: 1px solid var(--border-primary);
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 0.8rem;
+        }
+
+        .footer-links {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            margin-top: 0.5rem;
+        }
+
+        .footer-links a {
+            color: var(--text-muted);
+            text-decoration: none;
+            transition: var(--transition-fast);
+        }
+
+        .footer-links a:hover { color: var(--text-accent); }
+
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: var(--bg-secondary); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb { background: var(--surface-elevated); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--border-accent); }
+
+        @media (max-width: 768px) {
+            .container { padding: 1rem; }
+            .section-card { padding: 1.25rem; }
+            .nav-section { flex-direction: column; align-items: center; }
+            .nav-btn { width: 100%; max-width: 320px; justify-content: center; }
+            .endpoint-header { flex-direction: column; align-items: flex-start; }
         }
     </style>
 </head>
-
 <body>
     <div class="container">
         <div class="header">
-            <h1 class="main-title">HLS Proxy Server</h1>
-            <div class="status-banner">
-                <div class="status-indicator"></div>
-                <span>Server Operational</span>
-                <div class="version-info">
-                    <span>v{{APP_VERSION}}</span>
-                    <span class="version-latest {{VERSION_STATUS_CLASS}}">(Latest: {{LATEST_VERSION}})</span>
-                    <div class="warp-badge">WARP: {{WARP_STATUS}}</div>
+            <div class="hero-badge">
+                <div class="hero-badge-dot"></div>
+                <span>Server Documentation</span>
+            </div>
+            <h1 class="main-title">EasyProxy</h1>
+            <p class="header-subtitle">Universal streaming proxy &amp; media extraction server</p>
+            <div class="version-info-row">
+                <div class="version-chip">v{{APP_VERSION}}</div>
+                <div class="version-chip">
+                    <span class="version-latest {{VERSION_STATUS_CLASS}}">Latest: {{LATEST_VERSION}}</span>
                 </div>
+                <div class="warp-chip">WARP: {{WARP_STATUS}}</div>
             </div>
         </div>
 
         <nav class="nav-section">
-            <a href="/" class="nav-button">
-                <span>🏠</span>
-                <span>Home</span>
-            </a>
-            <a href="builder" class="nav-button">
-                <span>🏗️</span>
-                <span>Playlist Builder</span>
-            </a>
-            <a href="#endpoints" class="nav-button">
-                <span>📡</span>
-                <span>Endpoints</span>
-            </a>
+            <a href="/" class="nav-btn">&#x1F3E0; Home</a>
+            <a href="#endpoints" class="nav-btn">&#x1F4E1; Endpoints</a>
+            <a href="#architecture" class="nav-btn">&#x2699;&#xFE0F; Architecture</a>
+            <a href="#features" class="nav-btn">&#x26A1; Features</a>
+            <a href="#examples" class="nav-btn">&#x1F4BB; Code Examples</a>
         </nav>
 
         <div class="content-grid">
-            <!-- Advanced Features -->
-            <section id="features" class="section-card">
-                <h2 class="section-title">
-                    <div class="section-icon">🛠️</div>
-                    Advanced Features
-                </h2>
-
-                <div class="endpoint-card">
-                    <div class="endpoint-header">
-                        <span class="endpoint-method">QUERY</span>
-                        <code class="endpoint-path">&ck1=...&ck2=...</code>
-                    </div>
-                    <p class="endpoint-description">
-                        Integrated ClearKey support for DASH (MPD) streams.
-                    </p>
-                    <ul class="feature-list">
-                        <li class="feature-item">
-                            <span class="feature-bullet">•</span>
-                            <span>Dynamic injection of PSSH and ContentProtection</span>
-                        </li>
-                        <li class="feature-item">
-                            <span class="feature-bullet">•</span>
-                            <span>Automatic resolution of license proxying</span>
-                        </li>
-                    </ul>
-                </div>
-            </section>
-            <!-- Main Endpoints -->
-            <section id="endpoints" class="section-card">
-                <h2 class="section-title">
-                    <div class="section-icon">🔄</div>
-                    Main Endpoints
-                </h2>
-
-                <div class="endpoint-card">
-                    <div class="endpoint-header">
-                        <span class="endpoint-method">GET</span>
-                        <code class="endpoint-path">/proxy/manifest.m3u8?url=&lt;STREAM_URL&gt;</code>
-                    </div>
-                    <p class="endpoint-description">
-                        Universal proxy for multimedia streaming with full support for various formats and
-                        protocols.
-                    </p>
-                    <ul class="feature-list">
-                        <li class="feature-item">
-                            <span class="feature-bullet">•</span>
-                            <span><strong>VixSrc:</strong> VOD Streaming</span>
-                        </li>
-                        <li class="feature-item">
-                            <span class="feature-bullet">•</span>
-                            <span><strong>Sportzonline:</strong> Sports Streaming</span>
-                        </li>
-                        <li class="feature-item">
-                            <span class="feature-bullet">•</span>
-                            <span><strong>HLS (.m3u8):</strong> Live & VOD</span>
-                        </li>
-                        <li class="feature-item">
-                            <span class="feature-bullet">•</span>
-                            <span><strong>M3U Playlist:</strong> IPTV lists</span>
-                        </li>
-                        <li class="feature-item">
-                            <span class="feature-bullet">•</span>
-                            <span><strong>MPD (DASH):</strong> Adaptive Streaming</span>
-                        </li>
-                        <li class="feature-item">
-                            <span class="feature-bullet">•</span>
-                            <span><strong>DLHD:</strong> Dynamic Streams</span>
-                        </li>
-                    </ul>
-                    <div class="example-block">/proxy/manifest.m3u8?url=https://vixsrc.to/movie/...</div>
-                </div>
-
-                <div class="endpoint-card">
-                    <div class="endpoint-header">
-                        <span class="endpoint-method">GET</span>
-                        <code class="endpoint-path">/proxy/manifest.m3u8?url=&lt;URL_VAVOO&gt;</code>
-                    </div>
-                    <p class="endpoint-description">
-                        Automatic Vavoo content extraction with direct stream resolution.
-                    </p>
-                    <ul class="feature-list">
-                        <li class="feature-item">
-                            <span class="feature-bullet">•</span>
-                            <span>vavoo.to links into direct streams</span>
-                        </li>
-                        <li class="feature-item">
-                            <span class="feature-bullet">•</span>
-                            <span>Automatic API authentication</span>
-                        </li>
-                        <li class="feature-item">
-                            <span class="feature-bullet">•</span>
-                            <span>Optimized headers for streaming</span>
-                        </li>
-                    </ul>
-                </div>
-
-                <div class="endpoint-card">
-                    <div class="endpoint-header">
-                        <span class="endpoint-method">GET</span>
-                        <code class="endpoint-path">/proxy/manifest.m3u8?url=&lt;URL_DADDYLIVE&gt;</code>
-                    </div>
-                    <p class="endpoint-description">
-                        Advanced resolution for DaddyLive HD content with automatic restriction bypass.
-                    </p>
-                    <ul class="feature-list">
-                        <li class="feature-item">
-                            <span class="feature-bullet">•</span>
-                            <span>DaddyLive HD link resolution</span>
-                        </li>
-                        <li class="feature-item">
-                            <span class="feature-bullet">•</span>
-                            <span>Automatic geo/bot restriction bypass</span>
-                        </li>
-                        <li class="feature-item">
-                            <span class="feature-bullet">•</span>
-                            <span>Stream quality optimization</span>
-                        </li>
-                    </ul>
-                </div>
-                <div class="endpoint-card">
-                    <div class="endpoint-header">
-                        <span class="endpoint-method">GET</span>
-                        <code class="endpoint-path">/proxy/manifest.m3u8?url=&lt;URL_SPORTSONLINE&gt;</code>
-                    </div>
-                    <p class="endpoint-description">
-                        Automatic resolution of streams from Sportsonline/Sportzonline.
-                    </p>
-                    <ul class="feature-list">
-                        <li class="feature-item">
-                            <span class="feature-bullet">•</span>
-                            <span>Automatic extraction of iframes and M3U8 URLs</span>
-                        </li>
-                        <li class="feature-item">
-                            <span class="feature-bullet">•</span>
-                            <span>Support for P.A.C.K.E.R. unpacking</span>
-                        </li>
-                        <li class="feature-item">
-                            <span class="feature-bullet">•</span>
-                            <span>Optimized headers for streaming</span>
-                        </li>
-                    </ul>
-                </div>
-
-                <!-- DVR Endpoint -->
-                <div class="endpoint-card">
-                    <div class="endpoint-header">
-                        <span class="endpoint-method">GET</span>
-                        <code class="endpoint-path">/record?url=&lt;STREAM_URL&gt;</code>
-                    </div>
-                    <p class="endpoint-description">
-                        Start recording and redirect to live stream (DVR).
-                    </p>
-                    <ul class="feature-list">
-                        <li class="feature-item">
-                            <span class="feature-bullet">•</span>
-                            <span>Record while you watch</span>
-                        </li>
-                        <li class="feature-item">
-                            <span class="feature-bullet">•</span>
-                            <span>Optional title and duration support</span>
-                        </li>
-                        <li class="feature-item">
-                            <span class="feature-bullet">•</span>
-                            <span>Full management via <a href="/recordings"
-                                    style="color: var(--text-link);">/recordings</a></span>
-                        </li>
-                    </ul>
-                    <div class="example-block">/record?url=https://stream.m3u8&name=LiveTV&duration=3600</div>
-                </div>
-
-                <!-- HLS Proxy -->
-                <div class="endpoint-card">
-                    <div class="endpoint-header">
-                        <span class="endpoint-method">GET</span>
-                        <code class="endpoint-path">/proxy/hls/manifest.m3u8?d=&lt;URL&gt;</code>
-                    </div>
-                    <p class="endpoint-description">
-                        Endpoint for generic HLS streams.
-                    </p>
-                    <ul class="feature-list">
-                        <li class="feature-item">
-                            <span class="feature-bullet">•</span>
-                            <span><code>d</code> parameter for target URL</span>
-                        </li>
-                        <li class="feature-item">
-                            <span class="feature-bullet">•</span>
-                            <span>Drop-in compatibility for external clients</span>
-                        </li>
-                    </ul>
-                </div>
-
-                <!-- DASH / MPD Proxy -->
-                <div class="endpoint-card">
-                    <div class="endpoint-header">
-                        <span class="endpoint-method">GET</span>
-                        <code class="endpoint-path">/proxy/mpd/manifest.m3u8?d=&lt;URL_MPD&gt;</code>
-                    </div>
-                    <p class="endpoint-description">
-                        Proxy for DASH (.mpd) manifests with on-the-fly conversion.
-                    </p>
-                    <ul class="feature-list">
-                        <li class="feature-item">
-                            <span class="feature-bullet">•</span>
-                            <span><strong>HLS Conversion:</strong> Automatically transforms MPD into M3U8 for
-                                incompatible players</span>
-                        </li>
-                        <li class="feature-item">
-                            <span class="feature-bullet">•</span>
-                            <span><strong>Native:</strong> Use <code>format=mpd</code> to maintain original
-                                format</span>
-                        </li>
-                        <li class="feature-item">
-                            <span class="feature-bullet">•</span>
-                            <span>Integrated ClearKey DRM support</span>
-                        </li>
-                    </ul>
-                </div>
-
-                <!-- Extractor API -->
-                <div class="endpoint-card">
-                    <div class="endpoint-header">
-                        <span class="endpoint-method">GET</span>
-                        <code class="endpoint-path">/extractor/video?d=&lt;URL&gt;</code>
-                    </div>
-                    <p class="endpoint-description">
-                        Advanced Extraction API.
-                    </p>
-                    <ul class="feature-list">
-                        <li class="feature-item">
-                            <span class="feature-bullet">•</span>
-                            <span><strong>Parameters:</strong> <code>url</code> (or <code>d</code>), <code>host</code>
-                                (optional)</span>
-                        </li>
-                        <li class="feature-item">
-                            <span class="feature-bullet">•</span>
-                            <span><strong>Base64 Support:</strong> URL can be Base64 encoded</span>
-                        </li>
-                        <li class="feature-item">
-                            <span class="feature-bullet">•</span>
-                            <span><code>redirect_stream=true</code> (default): Immediate 302 redirect to stream</span>
-                        </li>
-                        <li class="feature-item">
-                            <span class="feature-bullet">•</span>
-                            <span><code>redirect_stream=false</code>: Returns JSON with metadata and headers</span>
-                        </li>
-                        <li class="feature-item">
-                            <span class="feature-bullet">•</span>
-                            <span><strong>Help:</strong> Open without parameters to see usage guide and available
-                                hosts</span>
-                        </li>
-                    </ul>
-                </div>
-
-                <!-- AES Key Proxy -->
-                <div class="endpoint-card">
-                    <div class="endpoint-header">
-                        <span class="endpoint-method">GET</span>
-                        <code class="endpoint-path">/key?key_url=&lt;URL&gt;</code>
-                    </div>
-                    <p class="endpoint-description">
-                        Secure proxy for AES-128 decryption keys.
-                    </p>
-                    <ul class="feature-list">
-                        <li class="feature-item">
-                            <span class="feature-bullet">•</span>
-                            <span>Authentication header management for keys</span>
-                        </li>
-                        <li class="feature-item">
-                            <span class="feature-bullet">•</span>
-                            <span>Support for static and dynamic keys</span>
-                        </li>
-                    </ul>
-                </div>
-
-                <!-- DRM License Proxy -->
-                <div class="endpoint-card">
-                    <div class="endpoint-header">
-                        <span class="endpoint-method">GET/POST</span>
-                        <code class="endpoint-path">/license?url=&lt;URL&gt;</code>
-                    </div>
-                    <p class="endpoint-description">
-                        Proxy for DRM license requests (ClearKey, Widevine).
-                    </p>
-                    <ul class="feature-list">
-                        <li class="feature-item">
-                            <span class="feature-bullet">•</span>
-                            <span>Static ClearKey support: <code>?clearkey=KID:KEY</code></span>
-                        </li>
-                        <li class="feature-item">
-                            <span class="feature-bullet">•</span>
-                            <span>Transparent proxying for remote license servers</span>
-                        </li>
-                    </ul>
-                </div>
-            </section>
-
-            <!-- API Endpoints Dettagliata -->
+            <!-- Server Status -->
             <section class="section-card">
                 <h2 class="section-title">
-                    <div class="section-icon">📚</div>
-                    Detailed API Endpoints Guide
+                    <div class="section-icon">&#x1F4CA;</div>
+                    Server Status
                 </h2>
-
-                <!-- Detailed Extractor API -->
-                <div class="endpoint-card">
-                    <div class="endpoint-header">
-                        <span class="endpoint-method">GET</span>
-                        <code class="endpoint-path">/extractor/video</code>
-                    </div>
-                    <p class="endpoint-description">
-                        <strong>Advanced Extraction API</strong> - Extracts direct URLs and headers from various
-                        streaming services.
-                    </p>
-
-                    <h3
-                        style="color: var(--text-primary); margin: var(--spacing-lg) 0 var(--spacing-md) 0; font-size: 1rem;">
-                        ℹ️ Info and Help
-                    </h3>
-                    <p class="endpoint-description">
-                        Open <code>/extractor</code> or <code>/extractor/video</code> without parameters to receive a
-                        JSON response with usage instructions and a list of supported hosts.
-                    </p>
-
-                    <h3
-                        style="color: var(--text-primary); margin: var(--spacing-lg) 0 var(--spacing-md) 0; font-size: 1rem;">
-                        📝 Parameters
-                    </h3>
-                    <ul class="feature-list">
-                        <li class="feature-item">
-                            <span class="feature-bullet">•</span>
-                            <span><code>url</code> or <code>d</code> <strong>(Required)</strong> - Video URL.
-                                Supports plain text, URL encoded or Base64</span>
-                        </li>
-                        <li class="feature-item">
-                            <span class="feature-bullet">•</span>
-                            <span><code>host</code> (Optional) - Force a specific extractor: vavoo, dlhd, embedsports, doodstream, f16px, fastream, filelions, filemoon,
-                                freeshot, livetv, lulustream, maxstream, mixdrop, okru, orion, sportsonline, streamtape, streamwish, supervideo, turbovidplay, uqload, vidmoly, vidoza, vixsrc, voe</span>
-                        </li>
-                        <li class="feature-item">
-                            <span class="feature-bullet">•</span>
-                            <span><code>redirect_stream</code> - true: immediate 302 redirect | false (default): JSON
-                                response</span>
-                        </li>
-                        <li class="feature-item">
-                            <span class="feature-bullet">•</span>
-                            <span><code>api_password</code> (Optional) - API Password if configured</span>
-                        </li>
-                    </ul>
-
-                    <h3
-                        style="color: var(--text-primary); margin: var(--spacing-lg) 0 var(--spacing-md) 0; font-size: 1rem;">
-                        💡 Practical Examples
-                    </h3>
-                    <div class="example-block">
-                        1. JSON Response (default):<br>
-                        /extractor/video?d=https://vavoo.to/channel/123
-                    </div>
-                    <div class="example-block">
-                        2. Immediate redirect:<br>
-                        /extractor/video?d=https://daddylive.mp/stream.php&redirect_stream=true
-                    </div>
-                    <div class="example-block">
-                        3. With manual host:<br>
-                        /extractor/video.m3u8?host=vavoo&d=https://custom-link.com/123
-                    </div>
-                    <div class="example-block">
-                        3b. Direct MP4 host:<br>
-                        /extractor/video.mp4?host=mixdrop&d=https://mixdrop.co/e/ABC123XYZ
-                    </div>
-                    <div class="example-block">
-                        4. URL Base64:<br>
-                        /extractor/video?d=aHR0cHM6Ly9leGFtcGxlLmNvbS92aWRlbw==
-                    </div>
-
-                    <h3
-                        style="color: var(--text-primary); margin: var(--spacing-lg) 0 var(--spacing-md) 0; font-size: 1rem;">
-                        🎯 Supported Services
-                    </h3>
-                    <div style="margin-top: var(--spacing-md); display: flex; flex-wrap: wrap; gap: var(--spacing-xs);">
-                        <span class="tag tag-primary">Vavoo</span>
-                        <span class="tag tag-primary">DaddyLiveHD</span>
-                        <span class="tag tag-primary">EmbedSports</span>
-                        <span class="tag tag-primary">Doodstream</span>
-                        <span class="tag tag-primary">F16px</span>
-                        <span class="tag tag-success">Fastream</span>
-                        <span class="tag tag-success">Filelions</span>
-                        <span class="tag tag-success">Filemoon</span>
-                        <span class="tag tag-success">Freeshot</span>
-                        <span class="tag tag-info">LiveTV</span>
-                        <span class="tag tag-info">Lulustream</span>
-                        <span class="tag tag-info">Maxstream</span>
-                        <span class="tag tag-info">Mixdrop</span>
-                        <span class="tag tag-warning">OKru</span>
-                        <span class="tag tag-warning">Orion</span>
-                        <span class="tag tag-warning">Sportsonline</span>
-                        <span class="tag tag-warning">Streamtape</span>
-                        <span class="tag tag-primary">Streamwish</span>
-                        <span class="tag tag-primary">Supervideo</span>
-                        <span class="tag tag-success">Turbovidplay</span>
-                        <span class="tag tag-success">Uqload</span>
-                        <span class="tag tag-info">Vidmoly</span>
-                        <span class="tag tag-info">Vidoza</span>
-                        <span class="tag tag-warning">VixSrc</span>
-                        <span class="tag tag-warning">Voe</span>
-                        <span class="tag tag-success">Generic</span>
-                    </div>
-                </div>
-
-                <!-- Proxy Endpoints -->
-                <div class="endpoint-card">
-                    <div class="endpoint-header">
-                        <span class="endpoint-method">GET</span>
-                        <code class="endpoint-path">/proxy/manifest.m3u8</code>
-                    </div>
-                    <p class="endpoint-description">
-                        <strong>Universal HLS Proxy</strong> - Main entry point for streaming. Handles HLS, MPD
-                        (with automatic conversion), and direct streams.
-                    </p>
-
-                    <h3
-                        style="color: var(--text-primary); margin: var(--spacing-lg) 0 var(--spacing-md) 0; font-size: 1rem;">
-                        📝 Common Parameters
-                    </h3>
-                    <ul class="feature-list">
-                        <li class="feature-item">
-                            <span class="feature-bullet">•</span>
-                            <span><code>url</code> or <code>d</code> - Original stream URL</span>
-                        </li>
-                        <li class="feature-item">
-                            <span class="feature-bullet">•</span>
-                            <span><code>h_&lt;header&gt;</code> - Custom headers (e.g., h_User-Agent=VLC)</span>
-                        </li>
-                        <li class="feature-item">
-                            <span class="feature-bullet">•</span>
-                            <span><code>clearkey</code> - DRM keys in KID:KEY format (for protected MPDs)</span>
-                        </li>
-                    </ul>
-
-                    <h3
-                        style="color: var(--text-primary); margin: var(--spacing-lg) 0 var(--spacing-md) 0; font-size: 1rem;">
-                        🔄 Endpoint Variants
-                    </h3>
-                    <ul class="feature-list">
-                        <li class="feature-item">
-                            <span class="feature-bullet">•</span>
-                            <span><code>/proxy/hls/manifest.m3u8</code> - Specific alias for HLS</span>
-                        </li>
-                        <li class="feature-item">
-                            <span class="feature-bullet">•</span>
-                            <span><code>/proxy/mpd/manifest.m3u8</code> - Force DASH (MPD) processing</span>
-                        </li>
-                        <li class="feature-item">
-                            <span class="feature-bullet">•</span>
-                            <span><code>/proxy/stream</code> - Proxy for static files (MP4, MKV, AVI)</span>
-                        </li>
-                    </ul>
-
-                    <div class="example-block">
-                        HLS Example:<br>
-                        /proxy/manifest.m3u8?url=https://example.com/stream.m3u8
-                    </div>
-                    <div class="example-block">
-                        MPD Example with ClearKey:<br>
-                        /proxy/manifest.m3u8?url=https://cdn.com/stream.mpd&clearkey=KID:KEY
-                    </div>
-                </div>
-
-                <!-- Utilities -->
-                <div class="endpoint-card">
-                    <div class="endpoint-header">
-                        <span class="endpoint-method">GET</span>
-                        <code class="endpoint-path">Utilities</code>
-                    </div>
-                    <p class="endpoint-description">
-                        <strong>Utility Endpoints</strong> - Additional services for playlist management, server info,
-                        and debugging.
-                    </p>
-
-                    <ul class="feature-list">
-                        <li class="feature-item">
-                            <span class="feature-bullet">🏗️</span>
-                            <span><code>/builder</code> - Web Interface for Playlist Builder</span>
-                        </li>
-                        <li class="feature-item">
-                            <span class="feature-bullet">📋</span>
-                            <span><code>/playlist</code> - Processes remote M3U playlists</span>
-                        </li>
-                        <li class="feature-item">
-                            <span class="feature-bullet">ℹ️</span>
-                            <span><code>/info</code> - Server status HTML page (this page)</span>
-                        </li>
-                        <li class="feature-item">
-                            <span class="feature-bullet">📊</span>
-                            <span><code>/api/info</code> - Server status JSON API</span>
-                        </li>
-                        <li class="feature-item">
-                            <span class="feature-bullet">🌐</span>
-                            <span><code>/proxy/ip</code> - Server's public IP (VPN/Proxy debug)</span>
-                        </li>
-                        <li class="feature-item">
-                            <span class="feature-bullet">🔧</span>
-                            <span><code>/generate_urls</code> (POST) - Batch generate proxy URLs</span>
-                        </li>
-                        <li class="feature-item">
-                            <span class="feature-bullet">🔐</span>
-                            <span><code>/license</code> (GET/POST) - DRM License management</span>
-                        </li>
-                    </ul>
-                </div>
-            </section>
-
-            <!-- Advanced Features -->
-            <section class="section-card">
-                <h2 class="section-title">
-                    <div class="section-icon">⚡</div>
-                    Advanced Features
-                </h2>
-
-                <div class="feature-list">
-                    <li class="feature-item">
-                        <span class="feature-bullet">🔐</span>
-                        <span>Automatic AES-128 cryptographic key management</span>
-                    </li>
-                    <li class="feature-item">
-                        <span class="feature-bullet">📋</span>
-                        <span>Full #EXTVLCOPT and #EXTHTTP support</span>
-                    </li>
-                    <li class="feature-item">
-                        <span class="feature-bullet">🔄</span>
-                        <span>Automatic retry with exponential backoff</span>
-                    </li>
-                    <li class="feature-item">
-                        <span class="feature-bullet">⚡</span>
-                        <span>Connection pooling for optimal performance</span>
-                    </li>
-                    <li class="feature-item">
-                        <span class="feature-bullet">🌐</span>
-                        <span>Custom headers with h_ prefix</span>
-                    </li>
-                    <li class="feature-item">
-                        <span class="feature-bullet">📺</span>
-                        <span>Transparent proxying for .ts segments</span>
-                    </li>
-                    <li class="feature-item">
-                        <span class="feature-bullet">🎯</span>
-                        <span>Universal compatibility with IPTV players</span>
-                    </li>
-                    <li class="feature-item">
-                        <span class="feature-bullet">🛡️</span>
-                        <span>Anti-bot persistent sessions</span>
-                    </li>
-                </div>
-
-                <div style="margin-top: var(--spacing-lg);">
-                    <span class="tag tag-primary">VixSrc</span>
-                    <span class="tag tag-primary">HLS</span>
-                    <span class="tag tag-primary">M3U8</span>
-                    <span class="tag tag-success">MPD</span>
-                    <span class="tag tag-info">Vavoo</span>
-                    <span class="tag tag-info">Sportzonline</span>
-                    <span class="tag tag-warning">AES-128</span>
-                </div>
-            </section>
-
-            <!-- Custom Headers -->
-            <section class="section-card">
-                <h2 class="section-title">
-                    <div class="section-icon">🔧</div>
-                    Custom Headers
-                </h2>
-
                 <p class="endpoint-description">
-                    Add custom headers with the <code
-                        style="color: var(--text-code); background: var(--surface-code); padding: 2px 6px; border-radius: 4px;">h_</code>
-                    prefix:
+                    EasyProxy is a high-performance universal streaming proxy server. It provides transparent proxying for HLS, DASH (MPD), and direct media streams, with built-in support for content extraction from dozens of streaming services, DRM license proxying, and DVR recording capabilities.
                 </p>
-
-                <div class="code-block">
-                    ?url=STREAM_URL&h_user-agent=CustomUA&h_referer=https://site.com&h_authorization=Bearer token123
-                </div>
-
-                <h3
-                    style="color: var(--text-primary); margin: var(--spacing-lg) 0 var(--spacing-md) 0; font-size: 1.1rem;">
-                    Supported Headers:</h3>
-                <ul class="feature-list">
-                    <li class="feature-item">
-                        <span class="feature-bullet">•</span>
-                        <span><strong>h_user-agent</strong> - Custom User Agent</span>
-                    </li>
-                    <li class="feature-item">
-                        <span class="feature-bullet">•</span>
-                        <span><strong>h_referer</strong> - Referrer site</span>
-                    </li>
-                    <li class="feature-item">
-                        <span class="feature-bullet">•</span>
-                        <span><strong>h_authorization</strong> - Authorization token</span>
-                    </li>
-                    <li class="feature-item">
-                        <span class="feature-bullet">•</span>
-                        <span><strong>h_origin</strong> - Origin domain</span>
-                    </li>
-                    <li class="feature-item">
-                        <span class="feature-bullet">•</span>
-                        <span><strong>h_*</strong> - Any custom header</span>
-                    </li>
-                </ul>
-            </section>
-
-            <!-- Complete API Reference -->
-            <section class="section-card">
-                <h2 class="section-title">
-                    <div class="section-icon">📚</div>
-                    Complete API Reference
-                </h2>
-                <p class="endpoint-description">Full list of all available endpoints in the server.</p>
-
-                <!-- System & Public -->
-                <h3 style="color: var(--text-primary); margin: var(--spacing-lg) 0 var(--spacing-sm) 0;">🏠 System &
-                    Public</h3>
-                <table class="api-table">
-                    <thead>
-                        <tr>
-                            <th width="100">Method</th>
-                            <th>Endpoint</th>
-                            <th>Description</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td><span class="method-tag method-get">GET</span></td>
-                            <td><code>/</code></td>
-                            <td>Main page with server status.</td>
-                        </tr>
-                        <tr>
-                            <td><span class="method-tag method-get">GET</span></td>
-                            <td><code>/info</code></td>
-                            <td>Detailed information page.</td>
-                        </tr>
-                        <tr>
-                            <td><span class="method-tag method-get">GET</span></td>
-                            <td><code>/builder</code></td>
-                            <td>Playlist Builder Web Interface.</td>
-                        </tr>
-                        <tr>
-                            <td><span class="method-tag method-get">GET</span></td>
-                            <td><code>/api/info</code></td>
-                            <td>Server status JSON API.</td>
-                        </tr>
-                        <tr>
-                            <td><span class="method-tag method-get">GET</span></td>
-                            <td><code>/proxy/ip</code></td>
-                            <td>Returns the server's public IP.</td>
-                        </tr>
-                    </tbody>
-                </table>
-
-                <!-- Proxy & Streaming -->
-                <h3 style="color: var(--text-primary); margin: var(--spacing-lg) 0 var(--spacing-sm) 0;">📺 Proxy &
-                    Streaming</h3>
-                <table class="api-table">
-                    <thead>
-                        <tr>
-                            <th width="100">Method</th>
-                            <th>Endpoint</th>
-                            <th>Description</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td><span class="method-tag method-get">GET</span></td>
-                            <td><code>/proxy/manifest.m3u8</code></td>
-                            <td><strong>Main Entry point</strong>. Auto-detect HLS/DASH.</td>
-                        </tr>
-                        <tr>
-                            <td><span class="method-tag method-get">GET</span></td>
-                            <td><code>/proxy/hls/manifest.m3u8</code></td>
-                            <td>Specific alias for HLS.</td>
-                        </tr>
-                        <tr>
-                            <td><span class="method-tag method-get">GET</span></td>
-                            <td><code>/proxy/mpd/manifest.m3u8</code></td>
-                            <td>Force DASH (MPD) input with HLS conversion.</td>
-                        </tr>
-                        <tr>
-                            <td><span class="method-tag method-get">GET</span></td>
-                            <td><code>/proxy/stream</code></td>
-                            <td>Generic proxy for static or progressive files.</td>
-                        </tr>
-                        <tr>
-                            <td><span class="method-tag method-get">GET</span></td>
-                            <td><code>/playlist</code></td>
-                            <td>Dynamic M3U playlist generator.</td>
-                        </tr>
-                    </tbody>
-                </table>
-
-                <!-- Extractors -->
-                <h3 style="color: var(--text-primary); margin: var(--spacing-lg) 0 var(--spacing-sm) 0;">🔍 Extractors
-                </h3>
-                <table class="api-table">
-                    <thead>
-                        <tr>
-                            <th width="100">Method</th>
-                            <th>Endpoint</th>
-                            <th>Description</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td><span class="method-tag method-get">GET</span></td>
-                            <td><code>/extractor/video</code></td>
-                            <td>Extracts links and headers. Returns JSON or Redirect.</td>
-                        </tr>
-                    </tbody>
-                </table>
-
-                <!-- Keys & DRM -->
-                <h3 style="color: var(--text-primary); margin: var(--spacing-lg) 0 var(--spacing-sm) 0;">🔐 Keys & DRM
-                </h3>
-                <table class="api-table">
-                    <thead>
-                        <tr>
-                            <th width="100">Method</th>
-                            <th>Endpoint</th>
-                            <th>Description</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td><span class="method-tag method-get">GET</span></td>
-                            <td><code>/license</code></td>
-                            <td>Proxy for DRM licenses (ClearKey/Widevine).</td>
-                        </tr>
-                        <tr>
-                            <td><span class="method-tag method-post">POST</span></td>
-                            <td><code>/license</code></td>
-                            <td>Proxy for DRM licenses (payload).</td>
-                        </tr>
-                        <tr>
-                            <td><span class="method-tag method-get">GET</span></td>
-                            <td><code>/key</code></td>
-                            <td>Proxy for AES-128 keys.</td>
-                        </tr>
-                    </tbody>
-                </table>
-
-                <!-- DVR -->
-                <h3 style="color: var(--text-primary); margin: var(--spacing-lg) 0 var(--spacing-sm) 0;">📼 DVR
-                    (Recordings)</h3>
-                <table class="api-table">
-                    <thead>
-                        <tr>
-                            <th width="100">Method</th>
-                            <th>Endpoint</th>
-                            <th>Description</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td><span class="method-tag method-get">GET</span></td>
-                            <td><code>/recordings</code></td>
-                            <td><strong>Web Interface</strong> for recordings management.</td>
-                        </tr>
-                        <tr>
-                            <td><span class="method-tag method-get">GET</span></td>
-                            <td><code>/record</code></td>
-                            <td>Starts recording and redirects to stream (Smart Mode).</td>
-                        </tr>
-                        <tr>
-                            <td><span class="method-tag method-get">GET</span></td>
-                            <td><code>/api/recordings</code></td>
-                            <td>Lists all recordings (JSON).</td>
-                        </tr>
-                        <tr>
-                            <td><span class="method-tag method-get">GET</span></td>
-                            <td><code>/api/recordings/active</code></td>
-                            <td>List active recordings.</td>
-                        </tr>
-                        <tr>
-                            <td><span class="method-tag method-get">GET</span></td>
-                            <td><code>/api/recordings/{id}</code></td>
-                            <td>Recording details.</td>
-                        </tr>
-                        <tr>
-                            <td><span class="method-tag method-post">POST</span></td>
-                            <td><code>/api/recordings/start</code></td>
-                            <td>Start background recording.</td>
-                        </tr>
-                        <tr>
-                            <td><span class="method-tag method-post">POST</span></td>
-                            <td><code>/api/recordings/{id}/stop</code></td>
-                            <td>Stop active recording.</td>
-                        </tr>
-                        <tr>
-                            <td><span class="method-tag method-get">GET</span></td>
-                            <td><code>/api/recordings/{id}/stream</code></td>
-                            <td>Watch recording (live/vod).</td>
-                        </tr>
-                        <tr>
-                            <td><span class="method-tag method-get">GET</span></td>
-                            <td><code>/api/recordings/{id}/download</code></td>
-                            <td>Download video file.</td>
-                        </tr>
-                        <tr>
-                            <td><span class="method-tag method-delete">DEL</span></td>
-                            <td><code>/api/recordings/{id}</code></td>
-                            <td>Delete recording.</td>
-                        </tr>
-                    </tbody>
-                </table>
-            </section>
-
-            <!-- Playlist Builder -->
-            <section class="section-card">
-                <h2 class="section-title">
-                    <div class="section-icon">🏗️</div>
-                    Playlist Builder
-                </h2>
-
-                <p class="endpoint-description">
-                    Combine multiple playlists into a single M3U stream:
-                </p>
-
-                <div class="endpoint-card" style="margin: var(--spacing-lg) 0;">
-                    <div class="endpoint-header">
-                        <span class="endpoint-method">GET</span>
-                        <code class="endpoint-path">/builder</code>
-                    </div>
-                </div>
-
-                <p class="endpoint-description">
-                    Complete interface for:
-                </p>
-
-                <ul class="feature-list">
-                    <li class="feature-item">
-                        <span class="feature-bullet">✅</span>
-                        <span>Combine multiple playlists</span>
-                    </li>
-                    <li class="feature-item">
-                        <span class="feature-bullet">✅</span>
-                        <span>Automatic Vavoo and DLHD management</span>
-                    </li>
-                    <li class="feature-item">
-                        <span class="feature-bullet">✅</span>
-                        <span>Automatic proxy for all streams</span>
-                    </li>
-                    <li class="feature-item">
-                        <span class="feature-bullet">✅</span>
-                        <span>VLC, Kodi, IPTV players compatibility</span>
-                    </li>
-                </ul>
-
-                <div class="example-block">Output format: M3U8 with integrated proxy</div>
-            </section>
-
-            <!-- Compatibilità Player -->
-            <section class="section-card">
-                <h2 class="section-title">
-                    <div class="section-icon">📱</div>
-                    Player Compatibility
-                </h2>
-
-                <div class="architecture-grid">
-                    <div class="arch-card">
-                        <div class="arch-icon">🎬</div>
-                        <div class="arch-title">VLC Media Player</div>
-                        <div class="arch-description">All versions supported</div>
-                    </div>
-                    <div class="arch-card">
-                        <div class="arch-icon">🎯</div>
-                        <div class="arch-title">Kodi</div>
-                        <div class="arch-description">With IPTV plugin</div>
-                    </div>
-                    <div class="arch-card">
-                        <div class="arch-icon">📺</div>
-                        <div class="arch-title">IPTV Smarters Pro</div>
-                        <div class="arch-description">Native support</div>
-                    </div>
-                    <div class="arch-card">
-                        <div class="arch-icon">⚡</div>
-                        <div class="arch-title">TiviMate</div>
-                        <div class="arch-description">Advanced IPTV Player</div>
-                    </div>
-                    <div class="arch-card">
-                        <div class="arch-icon">🎮</div>
-                        <div class="arch-title">Perfect Player</div>
-                        <div class="arch-description">Full IPTV suite</div>
-                    </div>
-                    <div class="arch-card">
-                        <div class="arch-icon">🌐</div>
-                        <div class="arch-title">Browser Web</div>
-                        <div class="arch-description">Modern HTML5</div>
-                    </div>
-                </div>
-            </section>
-
-            <!-- Architettura Sistema -->
-            <section id="architecture" class="section-card">
-                <h2 class="section-title">
-                    <div class="section-icon">⚙️</div>
-                    System Architecture
-                </h2>
-
-                <h3
-                    style="color: var(--text-primary); margin: 0 0 var(--spacing-md) 0; display: flex; align-items: center; gap: var(--spacing-sm);">
-                    <span>🏗️</span> Technology Stack:
-                </h3>
-                <ul class="feature-list" style="margin-bottom: var(--spacing-xl);">
-                    <li class="feature-item">
-                        <span class="feature-bullet">•</span>
-                        <span>Python 3.11+ (FastAPI/aiohttp)</span>
-                    </li>
-                    <li class="feature-item">
-                        <span class="feature-bullet">•</span>
-                        <span>Asynchronous ASGI server (Uvicorn)</span>
-                    </li>
-                    <li class="feature-item">
-                        <span class="feature-bullet">•</span>
-                        <span>Connection pooling HTTP/2</span>
-                    </li>
-                    <li class="feature-item">
-                        <span class="feature-bullet">•</span>
-                        <span>Persistent session management</span>
-                    </li>
-                    <li class="feature-item">
-                        <span class="feature-bullet">•</span>
-                        <span>Anti-bot detection bypass</span>
-                    </li>
-                </ul>
-
-                <h3
-                    style="color: var(--text-primary); margin: 0 0 var(--spacing-md) 0; display: flex; align-items: center; gap: var(--spacing-sm);">
-                    <span>⚡</span> Performance:
-                </h3>
-
                 <div class="metrics-grid">
                     <div class="metric-card">
                         <div class="metric-value">&lt; 50ms</div>
@@ -1770,97 +797,559 @@
                         <div class="metric-label">Typical Memory</div>
                     </div>
                     <div class="metric-card">
-                        <div class="metric-value">∞</div>
+                        <div class="metric-value">&infin;</div>
                         <div class="metric-label">Throughput</div>
                     </div>
                 </div>
+            </section>
 
-                <ul class="feature-list" style="margin-top: var(--spacing-lg);">
-                    <li class="feature-item">
-                        <span class="feature-bullet">•</span>
-                        <span>Integrated DNS caching</span>
-                    </li>
+            <!-- API Endpoints -->
+            <section id="endpoints" class="section-card">
+                <h2 class="section-title">
+                    <div class="section-icon">&#x1F4E1;</div>
+                    API Endpoints
+                </h2>
+
+                <div class="endpoint-card">
+                    <div class="endpoint-header">
+                        <span class="endpoint-method method-get">GET</span>
+                        <code class="endpoint-path">/proxy/manifest.m3u8?url=&lt;STREAM_URL&gt;</code>
+                    </div>
+                    <p class="endpoint-description">
+                        <strong>Universal HLS Proxy</strong> &mdash; Main entry point for all streaming. Auto-detects HLS, MPD (with conversion), and direct streams. Supports custom headers via <code>h_</code> prefix and ClearKey DRM for protected MPDs.
+                    </p>
+                    <ul class="feature-list">
+                        <li class="feature-item"><span class="feature-bullet">&bull;</span><span><strong>VixSrc:</strong> VOD streaming</span></li>
+                        <li class="feature-item"><span class="feature-bullet">&bull;</span><span><strong>Sportzonline:</strong> Sports streaming</span></li>
+                        <li class="feature-item"><span class="feature-bullet">&bull;</span><span><strong>HLS (.m3u8):</strong> Live &amp; VOD</span></li>
+                        <li class="feature-item"><span class="feature-bullet">&bull;</span><span><strong>M3U Playlist:</strong> IPTV lists</span></li>
+                        <li class="feature-item"><span class="feature-bullet">&bull;</span><span><strong>MPD (DASH):</strong> Adaptive streaming</span></li>
+                        <li class="feature-item"><span class="feature-bullet">&bull;</span><span><strong>DLHD:</strong> Dynamic streams</span></li>
+                    </ul>
+                    <div class="example-block">/proxy/manifest.m3u8?url=https://example.com/stream.m3u8</div>
+                </div>
+
+                <div class="endpoint-card">
+                    <div class="endpoint-header">
+                        <span class="endpoint-method method-get">GET</span>
+                        <code class="endpoint-path">/proxy/manifest.m3u8?url=&lt;URL_VAVOO&gt;</code>
+                    </div>
+                    <p class="endpoint-description">
+                        <strong>Vavoo Content Extraction</strong> &mdash; Resolves vavoo.to links into direct playable streams with automatic API authentication and optimized streaming headers.
+                    </p>
+                    <ul class="feature-list">
+                        <li class="feature-item"><span class="feature-bullet">&bull;</span><span>vavoo.to links into direct streams</span></li>
+                        <li class="feature-item"><span class="feature-bullet">&bull;</span><span>Automatic API authentication</span></li>
+                        <li class="feature-item"><span class="feature-bullet">&bull;</span><span>Optimized headers for streaming</span></li>
+                    </ul>
+                </div>
+
+                <div class="endpoint-card">
+                    <div class="endpoint-header">
+                        <span class="endpoint-method method-get">GET</span>
+                        <code class="endpoint-path">/proxy/manifest.m3u8?url=&lt;URL_DADDYLIVE&gt;</code>
+                    </div>
+                    <p class="endpoint-description">
+                        <strong>DaddyLive HD Resolution</strong> &mdash; Advanced resolution for DaddyLive HD content with automatic geo/bot restriction bypass and stream quality optimization.
+                    </p>
+                    <ul class="feature-list">
+                        <li class="feature-item"><span class="feature-bullet">&bull;</span><span>DaddyLive HD link resolution</span></li>
+                        <li class="feature-item"><span class="feature-bullet">&bull;</span><span>Automatic geo/bot restriction bypass</span></li>
+                        <li class="feature-item"><span class="feature-bullet">&bull;</span><span>Stream quality optimization</span></li>
+                    </ul>
+                </div>
+
+                <div class="endpoint-card">
+                    <div class="endpoint-header">
+                        <span class="endpoint-method method-get">GET</span>
+                        <code class="endpoint-path">/proxy/manifest.m3u8?url=&lt;URL_SPORTSONLINE&gt;</code>
+                    </div>
+                    <p class="endpoint-description">
+                        <strong>Sportsonline Resolution</strong> &mdash; Automatic extraction of iframes and M3U8 URLs from Sportsonline/Sportzonline with P.A.C.K.E.R. unpacking support.
+                    </p>
+                    <ul class="feature-list">
+                        <li class="feature-item"><span class="feature-bullet">&bull;</span><span>Automatic extraction of iframes and M3U8 URLs</span></li>
+                        <li class="feature-item"><span class="feature-bullet">&bull;</span><span>Support for P.A.C.K.E.R. unpacking</span></li>
+                        <li class="feature-item"><span class="feature-bullet">&bull;</span><span>Optimized headers for streaming</span></li>
+                    </ul>
+                </div>
+
+                <div class="endpoint-card">
+                    <div class="endpoint-header">
+                        <span class="endpoint-method method-get">GET</span>
+                        <code class="endpoint-path">/proxy/hls/manifest.m3u8?d=&lt;URL&gt;</code>
+                    </div>
+                    <p class="endpoint-description">
+                        <strong>Generic HLS Proxy</strong> &mdash; Dedicated endpoint for pure HLS streams. Uses <code>d</code> parameter for the target URL. Drop-in compatibility for external clients.
+                    </p>
+                    <ul class="feature-list">
+                        <li class="feature-item"><span class="feature-bullet">&bull;</span><span><code>d</code> parameter for target URL</span></li>
+                        <li class="feature-item"><span class="feature-bullet">&bull;</span><span>Drop-in compatibility for external clients</span></li>
+                    </ul>
+                </div>
+
+                <div class="endpoint-card">
+                    <div class="endpoint-header">
+                        <span class="endpoint-method method-get">GET</span>
+                        <code class="endpoint-path">/proxy/mpd/manifest.m3u8?d=&lt;URL_MPD&gt;</code>
+                    </div>
+                    <p class="endpoint-description">
+                        <strong>DASH / MPD Proxy</strong> &mdash; Proxy for DASH (.mpd) manifests with on-the-fly HLS conversion. Use <code>format=mpd</code> to maintain the original DASH format. Integrated ClearKey DRM support.
+                    </p>
+                    <ul class="feature-list">
+                        <li class="feature-item"><span class="feature-bullet">&bull;</span><span><strong>HLS Conversion:</strong> Automatically transforms MPD into M3U8 for incompatible players</span></li>
+                        <li class="feature-item"><span class="feature-bullet">&bull;</span><span><strong>Native:</strong> Use <code>format=mpd</code> to maintain original format</span></li>
+                        <li class="feature-item"><span class="feature-bullet">&bull;</span><span>Integrated ClearKey DRM support</span></li>
+                    </ul>
+                </div>
+
+                <div class="endpoint-card">
+                    <div class="endpoint-header">
+                        <span class="endpoint-method method-get">GET</span>
+                        <code class="endpoint-path">/proxy/stream?d=&lt;URL&gt;</code>
+                    </div>
+                    <p class="endpoint-description">
+                        <strong>Generic Static File Proxy</strong> &mdash; Proxy for progressive download files such as MP4, MKV, AVI. Ideal for direct media file delivery.
+                    </p>
+                    <ul class="feature-list">
+                        <li class="feature-item"><span class="feature-bullet">&bull;</span><span>Static file proxying</span></li>
+                        <li class="feature-item"><span class="feature-bullet">&bull;</span><span>Range request support</span></li>
+                    </ul>
+                </div>
+
+                <div class="endpoint-card">
+                    <div class="endpoint-header">
+                        <span class="endpoint-method method-get">GET</span>
+                        <code class="endpoint-path">/extractor/video?d=&lt;URL&gt;</code>
+                    </div>
+                    <p class="endpoint-description">
+                        <strong>Advanced Extraction API</strong> &mdash; Extracts direct stream URLs and headers from dozens of streaming services. Returns JSON metadata or performs immediate 302 redirect.
+                    </p>
+                    <ul class="feature-list">
+                        <li class="feature-item"><span class="feature-bullet">&bull;</span><span>Parameters: <code>url</code> or <code>d</code> (required), <code>host</code> (optional, force extractor)</span></li>
+                        <li class="feature-item"><span class="feature-bullet">&bull;</span><span>Base64 encoded URLs supported</span></li>
+                        <li class="feature-item"><span class="feature-bullet">&bull;</span><span><code>redirect_stream=true</code>: Immediate 302 redirect</span></li>
+                        <li class="feature-item"><span class="feature-bullet">&bull;</span><span><code>redirect_stream=false</code>: Returns JSON with metadata and headers</span></li>
+                        <li class="feature-item"><span class="feature-bullet">&bull;</span><span>Open without parameters for usage guide and supported hosts list</span></li>
+                    </ul>
+                    <div class="tag-grid">
+                        <span class="tag tag-primary">Vavoo</span>
+                        <span class="tag tag-primary">DaddyLiveHD</span>
+                        <span class="tag tag-primary">EmbedSports</span>
+                        <span class="tag tag-primary">Doodstream</span>
+                        <span class="tag tag-success">Fastream</span>
+                        <span class="tag tag-success">Filelions</span>
+                        <span class="tag tag-success">Filemoon</span>
+                        <span class="tag tag-info">LiveTV</span>
+                        <span class="tag tag-info">Lulustream</span>
+                        <span class="tag tag-info">Mixdrop</span>
+                        <span class="tag tag-warning">OKru</span>
+                        <span class="tag tag-warning">Sportsonline</span>
+                        <span class="tag tag-warning">Streamtape</span>
+                        <span class="tag tag-accent">Streamwish</span>
+                        <span class="tag tag-accent">Supervideo</span>
+                        <span class="tag tag-danger">Uqload</span>
+                        <span class="tag tag-primary">VixSrc</span>
+                        <span class="tag tag-success">Voe</span>
+                        <span class="tag tag-info">Generic</span>
+                    </div>
+                </div>
+
+                <div class="endpoint-card">
+                    <div class="endpoint-header">
+                        <span class="endpoint-method method-get">GET</span>
+                        <code class="endpoint-path">/key?key_url=&lt;URL&gt;</code>
+                    </div>
+                    <p class="endpoint-description">
+                        <strong>AES-128 Key Proxy</strong> &mdash; Secure proxy for AES-128 decryption keys. Manages authentication headers and supports both static and dynamic key retrieval.
+                    </p>
+                    <ul class="feature-list">
+                        <li class="feature-item"><span class="feature-bullet">&bull;</span><span>Authentication header management for keys</span></li>
+                        <li class="feature-item"><span class="feature-bullet">&bull;</span><span>Support for static and dynamic keys</span></li>
+                    </ul>
+                </div>
+
+                <div class="endpoint-card">
+                    <div class="endpoint-header">
+                        <span class="endpoint-method method-getpost">GET/POST</span>
+                        <code class="endpoint-path">/license?url=&lt;URL&gt;</code>
+                    </div>
+                    <p class="endpoint-description">
+                        <strong>DRM License Proxy</strong> &mdash; Proxy for DRM license requests supporting ClearKey and Widevine. Handles transparent proxying for remote license servers.
+                    </p>
+                    <ul class="feature-list">
+                        <li class="feature-item"><span class="feature-bullet">&bull;</span><span>Static ClearKey: <code>?clearkey=KID:KEY</code></span></li>
+                        <li class="feature-item"><span class="feature-bullet">&bull;</span><span>Transparent proxying for remote license servers</span></li>
+                    </ul>
+                </div>
+
+                <div class="endpoint-card">
+                    <div class="endpoint-header">
+                        <span class="endpoint-method method-get">GET</span>
+                        <code class="endpoint-path">/playlist?url=&lt;M3U_URL&gt;</code>
+                    </div>
+                    <p class="endpoint-description">
+                        <strong>Dynamic M3U Playlist Generator</strong> &mdash; Processes remote M3U playlists and rewrites all stream URLs through the proxy, enabling unified access.
+                    </p>
+                    <ul class="feature-list">
+                        <li class="feature-item"><span class="feature-bullet">&bull;</span><span>Rewrites all stream URLs through proxy</span></li>
+                        <li class="feature-item"><span class="feature-bullet">&bull;</span><span>Retains original EPG and metadata</span></li>
+                    </ul>
+                </div>
+
+                <div class="endpoint-card">
+                    <div class="endpoint-header">
+                        <span class="endpoint-method method-get">GET</span>
+                        <code class="endpoint-path">/record?url=&lt;STREAM_URL&gt;&amp;name=&lt;TITLE&gt;&amp;duration=&lt;SECONDS&gt;</code>
+                    </div>
+                    <p class="endpoint-description">
+                        <strong>DVR Recording</strong> &mdash; Start recording a live stream while watching. Optional title and duration parameters. Full recording management via the web interface.
+                    </p>
+                    <ul class="feature-list">
+                        <li class="feature-item"><span class="feature-bullet">&bull;</span><span>Record while you watch (Smart Mode)</span></li>
+                        <li class="feature-item"><span class="feature-bullet">&bull;</span><span>Optional title and duration support</span></li>
+                        <li class="feature-item"><span class="feature-bullet">&bull;</span><span>Full management at <code>/recordings</code></span></li>
+                    </ul>
+                    <div class="example-block">/record?url=https://stream.m3u8&name=LiveTV&duration=3600</div>
+                </div>
+            </section>
+
+            <!-- Complete API Reference -->
+            <section class="section-card">
+                <h2 class="section-title">
+                    <div class="section-icon">&#x1F4DA;</div>
+                    Complete API Reference
+                </h2>
+                <p class="endpoint-description">Full list of all available endpoints organized by category.</p>
+
+                <div class="table-section-title">&#x1F3E0; System &amp; Public</div>
+                <table class="api-table">
+                    <thead>
+                        <tr><th width="100">Method</th><th>Endpoint</th><th>Description</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><span class="endpoint-method method-get">GET</span></td><td><code>/</code></td><td>Main page with server status</td></tr>
+                        <tr><td><span class="endpoint-method method-get">GET</span></td><td><code>/info</code></td><td>Detailed information page (this page)</td></tr>
+                        <tr><td><span class="endpoint-method method-get">GET</span></td><td><code>/builder</code></td><td>Playlist Builder web interface</td></tr>
+                        <tr><td><span class="endpoint-method method-get">GET</span></td><td><code>/api/info</code></td><td>Server status JSON API</td></tr>
+                        <tr><td><span class="endpoint-method method-get">GET</span></td><td><code>/proxy/ip</code></td><td>Returns the server's public IP address</td></tr>
+                        <tr><td><span class="endpoint-method method-post">POST</span></td><td><code>/generate_urls</code></td><td>Batch generate proxy URLs</td></tr>
+                    </tbody>
+                </table>
+
+                <div class="table-section-title">&#x1F4FA; Proxy &amp; Streaming</div>
+                <table class="api-table">
+                    <thead>
+                        <tr><th width="100">Method</th><th>Endpoint</th><th>Description</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><span class="endpoint-method method-get">GET</span></td><td><code>/proxy/manifest.m3u8</code></td><td><strong>Main entry point</strong> &mdash; auto-detect HLS/DASH</td></tr>
+                        <tr><td><span class="endpoint-method method-get">GET</span></td><td><code>/proxy/hls/manifest.m3u8</code></td><td>Specific alias for HLS streams</td></tr>
+                        <tr><td><span class="endpoint-method method-get">GET</span></td><td><code>/proxy/mpd/manifest.m3u8</code></td><td>Force DASH (MPD) input with HLS conversion</td></tr>
+                        <tr><td><span class="endpoint-method method-get">GET</span></td><td><code>/proxy/stream</code></td><td>Generic proxy for static/progressive files</td></tr>
+                        <tr><td><span class="endpoint-method method-get">GET</span></td><td><code>/playlist</code></td><td>Dynamic M3U playlist generator</td></tr>
+                    </tbody>
+                </table>
+
+                <div class="table-section-title">&#x1F50D; Extractors</div>
+                <table class="api-table">
+                    <thead>
+                        <tr><th width="100">Method</th><th>Endpoint</th><th>Description</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><span class="endpoint-method method-get">GET</span></td><td><code>/extractor/video</code></td><td>Extract direct links and headers. Returns JSON or redirect</td></tr>
+                    </tbody>
+                </table>
+
+                <div class="table-section-title">&#x1F510; Keys &amp; DRM</div>
+                <table class="api-table">
+                    <thead>
+                        <tr><th width="100">Method</th><th>Endpoint</th><th>Description</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><span class="endpoint-method method-getpost">GET/POST</span></td><td><code>/license</code></td><td>Proxy for DRM licenses (ClearKey / Widevine)</td></tr>
+                        <tr><td><span class="endpoint-method method-get">GET</span></td><td><code>/key</code></td><td>Proxy for AES-128 decryption keys</td></tr>
+                    </tbody>
+                </table>
+
+                <div class="table-section-title">&#x1F4BC; DVR &amp; Recordings</div>
+                <table class="api-table">
+                    <thead>
+                        <tr><th width="100">Method</th><th>Endpoint</th><th>Description</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><span class="endpoint-method method-get">GET</span></td><td><code>/recordings</code></td><td>Web interface for recordings management</td></tr>
+                        <tr><td><span class="endpoint-method method-get">GET</span></td><td><code>/record</code></td><td>Start recording and redirect to stream (Smart Mode)</td></tr>
+                        <tr><td><span class="endpoint-method method-get">GET</span></td><td><code>/api/recordings</code></td><td>List all recordings (JSON)</td></tr>
+                        <tr><td><span class="endpoint-method method-get">GET</span></td><td><code>/api/recordings/active</code></td><td>List active recordings</td></tr>
+                        <tr><td><span class="endpoint-method method-get">GET</span></td><td><code>/api/recordings/{id}</code></td><td>Recording details</td></tr>
+                        <tr><td><span class="endpoint-method method-post">POST</span></td><td><code>/api/recordings/start</code></td><td>Start background recording</td></tr>
+                        <tr><td><span class="endpoint-method method-post">POST</span></td><td><code>/api/recordings/{id}/stop</code></td><td>Stop active recording</td></tr>
+                        <tr><td><span class="endpoint-method method-get">GET</span></td><td><code>/api/recordings/{id}/stream</code></td><td>Watch recording (live or VOD)</td></tr>
+                        <tr><td><span class="endpoint-method method-get">GET</span></td><td><code>/api/recordings/{id}/download</code></td><td>Download recorded video file</td></tr>
+                        <tr><td><span class="endpoint-method method-delete">DEL</span></td><td><code>/api/recordings/{id}</code></td><td>Delete recording</td></tr>
+                    </tbody>
+                </table>
+            </section>
+
+            <!-- Architecture -->
+            <section id="architecture" class="section-card">
+                <h2 class="section-title">
+                    <div class="section-icon">&#x2699;&#xFE0F;</div>
+                    System Architecture
+                </h2>
+
+                <p class="endpoint-description">
+                    EasyProxy is built on a modern async Python stack designed for high-throughput media streaming with minimal overhead.
+                </p>
+
+                <div class="architecture-grid">
+                    <div class="arch-card">
+                        <div class="arch-icon">&#x1F40D;</div>
+                        <div class="arch-title">Python 3.11+</div>
+                        <div class="arch-desc">FastAPI / aiohttp async runtime</div>
+                    </div>
+                    <div class="arch-card">
+                        <div class="arch-icon">&#x26A1;</div>
+                        <div class="arch-title">ASGI Server</div>
+                        <div class="arch-desc">Uvicorn with HTTP/2 support</div>
+                    </div>
+                    <div class="arch-card">
+                        <div class="arch-icon">&#x1F500;</div>
+                        <div class="arch-title">Connection Pooling</div>
+                        <div class="arch-desc">Persistent sessions with keep-alive</div>
+                    </div>
+                    <div class="arch-card">
+                        <div class="arch-icon">&#x1F6E1;&#xFE0F;</div>
+                        <div class="arch-title">Anti-Bot Bypass</div>
+                        <div class="arch-desc">Persistent sessions &amp; fingerprinting</div>
+                    </div>
+                    <div class="arch-card">
+                        <div class="arch-icon">&#x1F4E6;</div>
+                        <div class="arch-title">DNS Caching</div>
+                        <div class="arch-desc">Integrated resolver with TTL management</div>
+                    </div>
+                    <div class="arch-card">
+                        <div class="arch-icon">&#x1F504;</div>
+                        <div class="arch-title">Retry Logic</div>
+                        <div class="arch-desc">Exponential backoff for resilience</div>
+                    </div>
+                </div>
+
+                <p class="endpoint-description" style="margin-top: 1.5rem; font-weight: 500; color: var(--text-primary);">
+                    Technology Stack
+                </p>
+                <div class="tag-grid">
+                    <span class="tag tag-primary">Python 3.11+</span>
+                    <span class="tag tag-primary">FastAPI</span>
+                    <span class="tag tag-primary">aiohttp</span>
+                    <span class="tag tag-success">Uvicorn</span>
+                    <span class="tag tag-info">HTTP/2</span>
+                    <span class="tag tag-info">Connection Pooling</span>
+                    <span class="tag tag-warning">AES-128</span>
+                    <span class="tag tag-accent">ClearKey</span>
+                    <span class="tag tag-danger">Widevine</span>
+                </div>
+            </section>
+
+            <!-- Features -->
+            <section id="features" class="section-card">
+                <h2 class="section-title">
+                    <div class="section-icon">&#x26A1;</div>
+                    Features
+                </h2>
+
+                <div class="endpoint-card">
+                    <div class="endpoint-header">
+                        <span class="endpoint-method method-get">QUERY</span>
+                        <code class="endpoint-path">&amp;ck1=...&amp;ck2=...</code>
+                    </div>
+                    <p class="endpoint-description">
+                        <strong>Integrated ClearKey DRM</strong> &mdash; Dynamic injection of PSSH boxes and ContentProtection elements for DASH (MPD) streams. Automatic resolution of license proxying.
+                    </p>
+                    <ul class="feature-list">
+                        <li class="feature-item"><span class="feature-bullet">&bull;</span><span>Dynamic injection of PSSH and ContentProtection</span></li>
+                        <li class="feature-item"><span class="feature-bullet">&bull;</span><span>Automatic resolution of license proxying</span></li>
+                    </ul>
+                </div>
+
+                <div class="feature-list">
+                    <div class="feature-item"><span class="feature-bullet">&#x1F510;</span><span>Automatic AES-128 cryptographic key management</span></div>
+                    <div class="feature-item"><span class="feature-bullet">&#x1F4CB;</span><span>Full #EXTVLCOPT and #EXTHTTP support in playlists</span></div>
+                    <div class="feature-item"><span class="feature-bullet">&#x1F504;</span><span>Automatic retry with exponential backoff</span></div>
+                    <div class="feature-item"><span class="feature-bullet">&#x26A1;</span><span>Connection pooling for optimal performance</span></div>
+                    <div class="feature-item"><span class="feature-bullet">&#x1F310;</span><span>Custom headers with <code>h_</code> prefix</span></div>
+                    <div class="feature-item"><span class="feature-bullet">&#x1F4FA;</span><span>Transparent proxying for .ts segments</span></div>
+                    <div class="feature-item"><span class="feature-bullet">&#x1F3AF;</span><span>Universal compatibility with IPTV players</span></div>
+                    <div class="feature-item"><span class="feature-bullet">&#x1F6E1;&#xFE0F;</span><span>Anti-bot persistent sessions</span></div>
+                    <div class="feature-item"><span class="feature-bullet">&#x1F4E6;</span><span>Integrated DNS caching</span></div>
+                </div>
+
+                <div class="tag-grid" style="margin-top: 1rem;">
+                    <span class="tag tag-primary">VixSrc</span>
+                    <span class="tag tag-primary">HLS</span>
+                    <span class="tag tag-primary">M3U8</span>
+                    <span class="tag tag-success">MPD</span>
+                    <span class="tag tag-info">Vavoo</span>
+                    <span class="tag tag-info">Sportzonline</span>
+                    <span class="tag tag-warning">AES-128</span>
+                    <span class="tag tag-accent">ClearKey</span>
+                    <span class="tag tag-danger">Widevine</span>
+                </div>
+            </section>
+
+            <!-- Custom Headers -->
+            <section class="section-card">
+                <h2 class="section-title">
+                    <div class="section-icon">&#x1F527;</div>
+                    Custom Headers
+                </h2>
+                <p class="endpoint-description">
+                    Add custom HTTP headers to any proxied request using the <code>h_</code> prefix:
+                </p>
+                <div class="code-block">
+                    ?url=STREAM_URL&amp;h_user-agent=CustomUA&amp;h_referer=https://site.com&amp;h_authorization=Bearer%20token123
+                </div>
+                <ul class="feature-list">
+                    <li class="feature-item"><span class="feature-bullet">&bull;</span><span><strong>h_user-agent</strong> &mdash; Custom User Agent</span></li>
+                    <li class="feature-item"><span class="feature-bullet">&bull;</span><span><strong>h_referer</strong> &mdash; Referrer site</span></li>
+                    <li class="feature-item"><span class="feature-bullet">&bull;</span><span><strong>h_authorization</strong> &mdash; Authorization token</span></li>
+                    <li class="feature-item"><span class="feature-bullet">&bull;</span><span><strong>h_origin</strong> &mdash; Origin domain</span></li>
+                    <li class="feature-item"><span class="feature-bullet">&bull;</span><span><strong>h_*</strong> &mdash; Any custom header</span></li>
                 </ul>
             </section>
+
+            <!-- Code Examples -->
+            <section id="examples" class="section-card">
+                <h2 class="section-title">
+                    <div class="section-icon">&#x1F4BB;</div>
+                    Code Examples
+                </h2>
+
+                <div class="endpoint-card">
+                    <div class="endpoint-header">
+                        <span class="endpoint-method method-get">GET</span>
+                        <code class="endpoint-path">/extractor/video</code>
+                    </div>
+                    <p class="endpoint-description">
+                        <strong>Extractor API Examples</strong>
+                    </p>
+                    <div class="example-block">1. JSON Response (default):<br>/extractor/video?d=https://vavoo.to/channel/123</div>
+                    <div class="example-block">2. Immediate redirect:<br>/extractor/video?d=https://daddylive.mp/stream.php&amp;redirect_stream=true</div>
+                    <div class="example-block">3. With manual host:<br>/extractor/video.m3u8?host=vavoo&amp;d=https://custom-link.com/123</div>
+                    <div class="example-block">4. Direct MP4 host:<br>/extractor/video.mp4?host=mixdrop&amp;d=https://mixdrop.co/e/ABC123XYZ</div>
+                    <div class="example-block">5. URL Base64 encoded:<br>/extractor/video?d=aHR0cHM6Ly9leGFtcGxlLmNvbS92aWRlbw==</div>
+                </div>
+
+                <div class="endpoint-card">
+                    <div class="endpoint-header">
+                        <span class="endpoint-method method-get">GET</span>
+                        <code class="endpoint-path">/proxy/manifest.m3u8</code>
+                    </div>
+                    <p class="endpoint-description">
+                        <strong>Proxy Examples</strong>
+                    </p>
+                    <div class="example-block">HLS Stream:<br>/proxy/manifest.m3u8?url=https://example.com/stream.m3u8</div>
+                    <div class="example-block">MPD with ClearKey:<br>/proxy/manifest.m3u8?url=https://cdn.com/stream.mpd&amp;clearkey=KID:KEY</div>
+                    <div class="example-block">With custom headers:<br>/proxy/manifest.m3u8?url=https://example.com/stream.m3u8&amp;h_user-agent=VLC&amp;h_referer=https://example.com</div>
+                </div>
+
+                <div class="endpoint-card">
+                    <div class="endpoint-header">
+                        <span class="endpoint-method method-get">GET</span>
+                        <code class="endpoint-path">/playlist</code>
+                    </div>
+                    <p class="endpoint-description">
+                        <strong>Playlist Builder</strong>
+                    </p>
+                    <p class="endpoint-description">
+                        The <code>/builder</code> web interface lets you combine multiple M3U playlists into a single stream with automatic proxy rewriting. All streams are transparently proxied through EasyProxy, ensuring compatibility with VLC, Kodi, TiviMate, IPTV Smarters Pro, and other players.
+                    </p>
+                    <div class="example-block">Web Interface:<br>/builder</div>
+                </div>
+            </section>
+
+            <!-- Player Compatibility -->
+            <section class="section-card">
+                <h2 class="section-title">
+                    <div class="section-icon">&#x1F4F1;</div>
+                    Player Compatibility
+                </h2>
+                <div class="architecture-grid">
+                    <div class="arch-card">
+                        <div class="arch-icon">&#x1F3AC;</div>
+                        <div class="arch-title">VLC Media Player</div>
+                        <div class="arch-desc">All versions supported</div>
+                    </div>
+                    <div class="arch-card">
+                        <div class="arch-icon">&#x1F3AF;</div>
+                        <div class="arch-title">Kodi</div>
+                        <div class="arch-desc">With IPTV plugin</div>
+                    </div>
+                    <div class="arch-card">
+                        <div class="arch-icon">&#x1F4FA;</div>
+                        <div class="arch-title">IPTV Smarters Pro</div>
+                        <div class="arch-desc">Native support</div>
+                    </div>
+                    <div class="arch-card">
+                        <div class="arch-icon">&#x26A1;</div>
+                        <div class="arch-title">TiviMate</div>
+                        <div class="arch-desc">Advanced IPTV Player</div>
+                    </div>
+                    <div class="arch-card">
+                        <div class="arch-icon">&#x1F3AE;</div>
+                        <div class="arch-title">Perfect Player</div>
+                        <div class="arch-desc">Full IPTV suite</div>
+                    </div>
+                    <div class="arch-card">
+                        <div class="arch-icon">&#x1F310;</div>
+                        <div class="arch-title">Browser Web</div>
+                        <div class="arch-desc">Modern HTML5 players</div>
+                    </div>
+                </div>
+            </section>
         </div>
+
+        <footer class="footer">
+            <p>EasyProxy &mdash; Universal Streaming Proxy Server</p>
+            <div class="footer-links">
+                <a href="/">Home</a>
+                <a href="/builder">Playlist Builder</a>
+                <a href="/recordings">Recordings</a>
+                <a href="/api/info">API (JSON)</a>
+            </div>
+        </footer>
     </div>
 
     <script>
-        // Smooth scrolling for internal links
-        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
-            anchor.addEventListener('click', function (e) {
+        document.querySelectorAll('a[href^="#"]').forEach(function(anchor) {
+            anchor.addEventListener('click', function(e) {
                 e.preventDefault();
-                const target = document.querySelector(this.getAttribute('href'));
+                var target = document.querySelector(this.getAttribute('href'));
                 if (target) {
-                    target.scrollIntoView({
-                        behavior: 'smooth',
-                        block: 'start'
-                    });
+                    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
                 }
             });
         });
 
-        // Advanced hover effects for cards
-        document.addEventListener('DOMContentLoaded', function () {
-            const cards = document.querySelectorAll('.section-card, .endpoint-card, .arch-card, .metric-card');
-
-            cards.forEach(card => {
-                card.addEventListener('mouseenter', function () {
-                    this.style.transform = this.classList.contains('section-card') ? 'translateY(-6px)' : 'translateY(-4px)';
-                });
-
-                card.addEventListener('mouseleave', function () {
-                    this.style.transform = 'translateY(0)';
+        document.addEventListener('DOMContentLoaded', function() {
+            var cards = document.querySelectorAll('.section-card, .endpoint-card, .arch-card, .metric-card');
+            cards.forEach(function(card) {
+                card.addEventListener('mouseenter', function() {
+                    if (this.classList.contains('metric-card')) return;
                 });
             });
 
-            // status banner animation on click            const statusBanner = document.querySelector('.status-banner');
-            statusBanner.addEventListener('click', () => {
-                statusBanner.style.animation = 'none';
-                setTimeout(() => {
-                    statusBanner.style.animation = 'statusPulse 0.6s ease-in-out';
-                }, 10);
-                setTimeout(() => {
-                    statusBanner.style.animation = 'statusPulse 2s ease-in-out infinite';
-                }, 600);
-            });
-
-            // Lightweight parallax effect for background
-            let ticking = false;
-
-            function updateParallax() {
-                const scrollTop = window.pageYOffset;
-                const rate = scrollTop * -0.5;
-                document.body.style.transform = `translate3d(0, ${rate}px, 0)`;
-                ticking = false;
-            }
-
-            function requestTick() {
-                if (!ticking) {
-                    requestAnimationFrame(updateParallax);
-                    ticking = true;
-                }
-            }
-
-            window.addEventListener('scroll', requestTick);
-
-            // Intersection Observer for entry animations
-            const observerOptions = {
-                threshold: 0.1,
-                rootMargin: '0px 0px -50px 0px'
-            };
-
-            const observer = new IntersectionObserver((entries) => {
-                entries.forEach(entry => {
+            var observer = new IntersectionObserver(function(entries) {
+                entries.forEach(function(entry) {
                     if (entry.isIntersecting) {
                         entry.target.style.opacity = '1';
                         entry.target.style.transform = 'translateY(0)';
                     }
                 });
-            }, observerOptions);
+            }, { threshold: 0.1, rootMargin: '0px 0px -50px 0px' });
 
-            // Observe all section-cards
-            document.querySelectorAll('.section-card').forEach(card => {
+            document.querySelectorAll('.section-card').forEach(function(card) {
                 card.style.opacity = '0';
                 card.style.transform = 'translateY(30px)';
                 card.style.transition = 'opacity 0.6s ease, transform 0.6s ease';
@@ -1869,5 +1358,4 @@
         });
     </script>
 </body>
-
 </html>

@@ -1,4 +1,9 @@
-from services.proxy_shared import *
+import aiohttp
+from services.proxy_shared import (
+    logger,
+    hex_to_b64url,
+    web,
+)
 
 
 class HLSProxyLicenseHandlerMixin:
@@ -9,20 +14,12 @@ class HLSProxyLicenseHandlerMixin:
             # 1. Modalità ClearKey Statica
             clearkey_param = request.query.get("clearkey")
             if clearkey_param:
-                logger.debug(f"🔑 Static ClearKey license request: {clearkey_param}")
+                logger.debug(f"🔐 Static ClearKey license request: {clearkey_param}")
                 try:
                     # Support multiple keys separated by comma
                     # Format: KID1:KEY1,KID2:KEY2
                     key_pairs = clearkey_param.split(",")
                     keys_jwk = []
-
-                    # Helper per convertire hex in base64url
-                    def hex_to_b64url(hex_str):
-                        return (
-                            base64.urlsafe_b64encode(binascii.unhexlify(hex_str))
-                            .decode("utf-8")
-                            .rstrip("=")
-                        )
 
                     for pair in key_pairs:
                         if ":" in pair:
@@ -42,7 +39,7 @@ class HLSProxyLicenseHandlerMixin:
                     jwk_response = {"keys": keys_jwk, "type": "temporary"}
 
                     logger.info(
-                        f"🔑 Serving static ClearKey license with {len(keys_jwk)} keys"
+                        f"🔐 Serving static ClearKey license with {len(keys_jwk)} keys"
                     )
                     return web.json_response(jwk_response)
                 except Exception as e:
@@ -68,8 +65,8 @@ class HLSProxyLicenseHandlerMixin:
             if request.headers.get("Content-Type"):
                 headers["Content-Type"] = request.headers.get("Content-Type")
 
-            # Legge il body della richiesta (challenge DRM)
-            body = await request.read()
+            # Legge il body della richiesta (challenge DRM), max 100KB
+            body = await request.read(100000)
 
             logger.info(f"🔐 Proxying License Request to: {license_url}")
 
@@ -79,7 +76,8 @@ class HLSProxyLicenseHandlerMixin:
                 license_url, bypass_warp=bypass_warp
             )
             async with session.request(
-                request.method, license_url, headers=headers, data=body
+                request.method, license_url, headers=headers, data=body,
+                timeout=aiohttp.ClientTimeout(total=30)
             ) as resp:
                 response_body = await resp.read()
                 logger.info(

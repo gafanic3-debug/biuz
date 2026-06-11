@@ -1,4 +1,23 @@
-from services.proxy_shared import *
+import hashlib
+import time
+import aiohttp
+from urllib.parse import urljoin
+from config import STRICT_PROXY_CONTEXT, should_allow_direct_fallback
+from services.proxy_shared import (
+    logger,
+    web,
+    check_password,
+    get_ssl_setting_for_url,
+    TRANSPORT_ROUTES,
+    GLOBAL_PROXIES,
+    ENABLE_WARP,
+    get_proxy_for_url,
+    mark_proxy_dead,
+    decrypt_segment,
+    is_browser_key_request,
+    fetch_browser_backed_key,
+    binascii,
+)
 
 class HLSProxyDashMixin:
 
@@ -25,7 +44,7 @@ class HLSProxyDashMixin:
             is_init = "init" in path.lower() or "header" in path.lower()
 
             # Fetch segment
-            async with self.session.get(segment_url, headers=headers) as resp:
+            async with self.session.get(segment_url, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as resp:
                 if resp.status not in [200, 206]:
                     return web.Response(status=resp.status)
 
@@ -155,7 +174,7 @@ class HLSProxyDashMixin:
                         continue
                     headers[header_name] = param_value
 
-            logger.debug(f"🔑 Fetching AES key from: {key_url}")
+            logger.debug(f"🔐 Fetching AES key from: {key_url}")
             logger.debug(f"   -> with headers: {headers}")
 
             # ✅ Use pooled session for better performance
@@ -172,7 +191,7 @@ class HLSProxyDashMixin:
                 )
                 # ✅ LOG CRITICO: Deve essere info per apparire nei log standard
                 if proxy_used:
-                    logger.info(f"🔑 [Key Proxy] Routing through: {proxy_used}")
+                    logger.info(f"🔐 [Key Proxy] Routing through: {proxy_used}")
                 elif (
                     forced_proxy
                     or GLOBAL_PROXIES
@@ -183,9 +202,9 @@ class HLSProxyDashMixin:
                         for route in TRANSPORT_ROUTES
                     )
                 ):
-                    logger.warning(f"🔑 [Key Proxy] NO PROXY assigned for: {key_url}")
+                    logger.warning(f"🔐 [Key Proxy] NO PROXY assigned for: {key_url}")
                 else:
-                    logger.info(f"🔑 [Key Proxy] Using direct session for: {key_url}")
+                    logger.info(f"🔐 [Key Proxy] Using direct session for: {key_url}")
 
             secret_key = headers.pop("X-Secret-Key", None)
 
@@ -197,7 +216,7 @@ class HLSProxyDashMixin:
                     or headers.get("User-Agent")
                     or headers.get("user-agent")
                 )
-                nonce_result = self._compute_key_headers(
+                nonce_result = await self._compute_key_headers(
                     key_url, secret_key, user_agent
                 )
                 if nonce_result:
@@ -227,7 +246,7 @@ class HLSProxyDashMixin:
 
             disable_ssl = get_ssl_setting_for_url(key_url, TRANSPORT_ROUTES)
             try:
-                async with session.get(key_url, headers=headers, ssl=not disable_ssl, allow_redirects=True, timeout=15) as resp:
+                async with session.get(key_url, headers=headers, ssl=not disable_ssl, allow_redirects=False, timeout=15) as resp:
                     if resp.status == 200 or resp.status == 206:
                         key_data = await resp.read()
                         logger.debug(
@@ -252,6 +271,8 @@ class HLSProxyDashMixin:
                             },
                         )
                     else:
+                        if request.transport.is_closing():
+                            return web.Response(status=499)
                         logger.error(f"❌ Key fetch failed with status: {resp.status}")
                         if proxy_used and not forced_proxy:
                             self._mark_proxy_dead_if_allowed(
@@ -260,10 +281,10 @@ class HLSProxyDashMixin:
                             )
                             new_proxy = get_proxy_for_url(key_url, TRANSPORT_ROUTES, GLOBAL_PROXIES, bypass_warp=bypass_warp)
                             if new_proxy and new_proxy != proxy_used:
-                                logger.info(f"🔑 Key fetch failed via proxy {proxy_used}, trying rotated proxy: {new_proxy}")
+                                logger.info(f"🔐 Key fetch failed via proxy {proxy_used}, trying rotated proxy: {new_proxy}")
                                 try:
                                     fallback_session, _ = await self._get_proxy_session(key_url, bypass_warp=bypass_warp, forced_proxy=new_proxy)
-                                    async with fallback_session.get(key_url, headers=headers, ssl=not disable_ssl, allow_redirects=True, timeout=10) as rot_resp:
+                                    async with fallback_session.get(key_url, headers=headers, ssl=not disable_ssl, allow_redirects=False, timeout=10) as rot_resp:
                                         if rot_resp.status in (200, 206):
                                             key_data = await rot_resp.read()
                                             return web.Response(
@@ -277,23 +298,29 @@ class HLSProxyDashMixin:
                                             )
                                 except Exception as fallback_e:
                                     logger.error(f"❌ Key fetch fallback via rotated proxy {new_proxy} failed: {fallback_e}")
-                            
-                            logger.warning("🔑 Trying direct connection as final fallback for AES key...")
-                            try:
-                                async with self.session.get(key_url, headers=headers, ssl=not disable_ssl, allow_redirects=True, timeout=10) as direct_resp:
-                                    if direct_resp.status in (200, 206):
-                                        key_data = await direct_resp.read()
-                                        return web.Response(
-                                            body=key_data,
-                                            content_type="application/octet-stream",
-                                            headers={
-                                                "Access-Control-Allow-Origin": "*",
-                                                "Access-Control-Allow-Headers": "*",
-                                                "Cache-Control": "no-cache, no-store, must-revalidate",
-                                            },
-                                        )
-                            except Exception as direct_e:
-                                logger.error(f"❌ Key fetch final direct fallback failed: {direct_e}")
+                            elif not new_proxy and (forced_proxy or STRICT_PROXY_CONTEXT.get()):
+                                logger.warning("🔐 Strict proxy mode: no fallback proxy, skipping direct")
+                                return web.Response(text="Proxy failed and strict mode prevents direct fallback", status=502)
+
+                        if forced_proxy or STRICT_PROXY_CONTEXT.get():
+                            logger.warning("🔐 Strict proxy mode: skipping direct fallback")
+                            return web.Response(text="Proxy failed and strict mode prevents direct fallback", status=502)
+                        logger.warning("🔐 Trying direct connection as final fallback for AES key...")
+                        try:
+                            async with self.session.get(key_url, headers=headers, ssl=not disable_ssl, allow_redirects=False, timeout=10) as direct_resp:
+                                if direct_resp.status in (200, 206):
+                                    key_data = await direct_resp.read()
+                                    return web.Response(
+                                        body=key_data,
+                                        content_type="application/octet-stream",
+                                        headers={
+                                            "Access-Control-Allow-Origin": "*",
+                                            "Access-Control-Allow-Headers": "*",
+                                            "Cache-Control": "no-cache, no-store, must-revalidate",
+                                        },
+                                    )
+                        except Exception as direct_e:
+                            logger.error(f"❌ Key fetch final direct fallback failed: {direct_e}")
 
                         # --- LOGICA DI INVALIDAZIONE AUTOMATICA ---
                         try:
@@ -311,18 +338,20 @@ class HLSProxyDashMixin:
                             text=f"Key fetch failed: {resp.status}", status=resp.status
                         )
             except Exception as e:
+                if request.transport.is_closing():
+                    return web.Response(status=499)
                 if proxy_used and not forced_proxy:
-                    logger.warning(f"🔑 Key fetch failed with exception via proxy {proxy_used}: {e}. Checking dead policy and trying fallback...")
+                    logger.warning(f"🔐 Key fetch failed with exception via proxy {proxy_used}: {e}. Checking dead policy and trying fallback...")
                     self._mark_proxy_dead_if_allowed(
                         proxy_used,
                         extractor_key=request.query.get("extractor_key"),
                     )
                     new_proxy = get_proxy_for_url(key_url, TRANSPORT_ROUTES, GLOBAL_PROXIES, bypass_warp=bypass_warp)
                     if new_proxy and new_proxy != proxy_used:
-                        logger.info(f"🔑 Key fetch failed, trying rotated proxy: {new_proxy}")
+                        logger.info(f"🔐 Key fetch failed, trying rotated proxy: {new_proxy}")
                         try:
                             fallback_session, _ = await self._get_proxy_session(key_url, bypass_warp=bypass_warp, forced_proxy=new_proxy)
-                            async with fallback_session.get(key_url, headers=headers, ssl=not disable_ssl, allow_redirects=True, timeout=10) as rot_resp:
+                            async with fallback_session.get(key_url, headers=headers, ssl=not disable_ssl, allow_redirects=False, timeout=10) as rot_resp:
                                 if rot_resp.status in (200, 206):
                                     key_data = await rot_resp.read()
                                     return web.Response(
@@ -336,23 +365,30 @@ class HLSProxyDashMixin:
                                     )
                         except Exception as fallback_err:
                             logger.error(f"❌ Key fetch fallback via rotated proxy {new_proxy} failed: {fallback_err}")
-                    
-                    logger.warning("🔑 Trying direct connection as final fallback for AES key...")
-                    try:
-                        async with self.session.get(key_url, headers=headers, ssl=not disable_ssl, allow_redirects=True, timeout=10) as direct_resp:
-                            if direct_resp.status in (200, 206):
-                                key_data = await direct_resp.read()
-                                return web.Response(
-                                    body=key_data,
-                                    content_type="application/octet-stream",
-                                    headers={
-                                        "Access-Control-Allow-Origin": "*",
-                                        "Access-Control-Allow-Headers": "*",
-                                        "Cache-Control": "no-cache, no-store, must-revalidate",
-                                    },
-                                )
-                    except Exception as direct_e:
-                        logger.error(f"❌ Key fetch final direct fallback failed: {direct_e}")
+                    elif not new_proxy:
+                        logger.warning("🔐 Strict proxy mode: no fallback proxy available")
+                        return web.Response(text="Proxy failed and strict mode prevents direct fallback", status=502)
+                
+                if forced_proxy or STRICT_PROXY_CONTEXT.get():
+                    logger.warning("🔐 Strict proxy mode: skipping direct fallback")
+                    return web.Response(text="Proxy failed and strict mode prevents direct fallback", status=502)
+                
+                logger.warning("🔐 Trying direct connection as final fallback for AES key...")
+                try:
+                    async with self.session.get(key_url, headers=headers, ssl=not disable_ssl, allow_redirects=False, timeout=10) as direct_resp:
+                        if direct_resp.status in (200, 206):
+                            key_data = await direct_resp.read()
+                            return web.Response(
+                                body=key_data,
+                                content_type="application/octet-stream",
+                                headers={
+                                    "Access-Control-Allow-Origin": "*",
+                                    "Access-Control-Allow-Headers": "*",
+                                    "Cache-Control": "no-cache, no-store, must-revalidate",
+                                },
+                            )
+                except Exception as direct_e:
+                    logger.error(f"❌ Key fetch final direct fallback failed: {direct_e}")
                 raise e
 
         except Exception as e:

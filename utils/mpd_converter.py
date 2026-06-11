@@ -101,15 +101,18 @@ class MPDToHLSConverter:
                     try:
                         h = int(rep.get("height", 0))
                         if h > max_height: max_height = h
-                    except: pass
+                    except Exception:
+                        logger.debug("Skipping representation without height")
+                        pass
 
             for adaptation_set in video_sets:
                 for representation in adaptation_set.findall('mpd:Representation', self.ns):
-                    # Filtra risoluzioni basse
                     try:
                         curr_h = int(representation.get("height", 0))
                         if curr_h < max_height: continue
-                    except: pass
+                    except Exception:
+                        logger.debug("Representation height parse failed, keeping it")
+                        pass
 
                     rep_id = representation.get('id')
                     bandwidth = representation.get('bandwidth')
@@ -369,42 +372,56 @@ class MPDToHLSConverter:
                         header_params = self._extract_header_params(params)
                         
                         if server_side_decryption:
-                            # Usa endpoint di decrittazione
-                            # Passiamo init_url perché serve per la concatenazione
                             decrypt_url = f"{proxy_base}/decrypt/segment.ts?url={encoded_seg_url}&init_url={encoded_init_url}{decryption_params}{header_params}"
                             lines.append(decrypt_url)
                         else:
-                            # Proxy standard - usa filename senza query string per evitare doppio ?
                             proxy_seg_url = f"{proxy_base}/segment/{seg_filename}?base_url={encoded_seg_url}{header_params}"
                             lines.append(proxy_seg_url)
                 
                 # --- SEGMENT TEMPLATE (DURATION) ---
                 else:
                     duration = int(segment_template.get('duration', '0'))
+                    total_segments = 100
+                    duration_sec = 0
                     if duration > 0:
-                        # Stima o limite segmenti (per VOD/Live senza timeline è complicato sapere quanti sono)
-                        # Per ora generiamo un numero fisso o basato sulla durata periodo se disponibile
                         period = root.find('mpd:Period', self.ns)
                         period_duration_str = period.get('duration')
-                        # Parsing durata ISO8601 (semplificato)
-                        # TODO: Implementare parsing durata reale
-                        total_segments = 100 # Placeholder
-                        
+                        if period_duration_str:
+                            import re as _re
+                            m = _re.match(r'PT(\d+H)?(\d+M)?(\d+(?:\.\d+)?S)?', period_duration_str)
+                            if m:
+                                hours = int(m.group(1)[:-1]) if m.group(1) else 0
+                                minutes = int(m.group(2)[:-1]) if m.group(2) else 0
+                                seconds = float(m.group(3)[:-1]) if m.group(3) else 0
+                                period_sec = hours * 3600 + minutes * 60 + seconds
+                                duration_sec = duration / timescale
+                                total_segments = max(1, int(period_sec / duration_sec)) if duration_sec > 0 else 100
+                            else:
+                                total_segments = 100
+                        else:
+                            total_segments = 100
+
                         duration_sec = duration / timescale
-                        
-                        for i in range(total_segments):
-                            seg_num = start_number + i
-                            seg_name = media.replace('$RepresentationID$', str(rep_id))
-                            seg_name = seg_name.replace('$Bandwidth$', str(bandwidth))
-                            seg_name = seg_name.replace('$Number$', str(seg_num))
-                            
-                            full_seg_url = urljoin(base_url, seg_name)
-                            encoded_seg_url = urllib.parse.quote(full_seg_url, safe='')
-                            header_params = self._extract_header_params(params)
-                            proxy_seg_url = f"{proxy_base}/segment/seg_{seg_num}.m4s?base_url={encoded_seg_url}{header_params}"
-                            
-                            lines.append(f'#EXTINF:{duration_sec:.6f},')
-                            lines.append(proxy_seg_url)
+
+                    for i in range(total_segments):
+                        seg_num = start_number + i
+                        seg_name = media.replace('$RepresentationID$', str(rep_id))
+                        seg_name = seg_name.replace('$Bandwidth$', str(bandwidth))
+                        seg_name = seg_name.replace('$Number$', str(seg_num))
+                        seg_name = seg_name.replace('$Time$', str(seg_num))
+
+                        full_seg_url = urljoin(base_url, seg_name)
+                        encoded_seg_url = urllib.parse.quote(full_seg_url, safe='')
+                        header_params = self._extract_header_params(params)
+                        orig_ext = os.path.splitext(seg_name.split('?')[0])[1] or '.m4s'
+                        if server_side_decryption:
+                            decrypt_url = f"{proxy_base}/decrypt/segment.ts?url={encoded_seg_url}&init_url={encoded_init_url}{decryption_params}{header_params}"
+                            seg_url = decrypt_url
+                        else:
+                            seg_url = f"{proxy_base}/segment/seg_{seg_num}{orig_ext}?base_url={encoded_seg_url}{header_params}"
+
+                        lines.append(f'#EXTINF:{duration_sec:.6f},')
+                        lines.append(seg_url)
 
             # Per VOD aggiungi ENDLIST, per LIVE no (indica stream in corso)
             if not is_live:

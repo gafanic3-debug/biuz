@@ -14,7 +14,6 @@ import hashlib
 import hmac
 import json
 import ssl
-import logging
 logger = logging.getLogger("services.proxy")
 import yarl
 import aiohttp
@@ -77,16 +76,73 @@ except ImportError:
 if MPD_MODE in ("legacy", "none", "disabled"):
     try:
         from utils.mpd_converter import MPDToHLSConverter
-        logger.info("Legacy MPD converter loaded")
+        logger.info("✅ Legacy MPD converter loaded")
     except ImportError as e:
-        logger.warning(f"MPD_MODE=legacy but mpd_converter not found: {e}")
+        logger.warning(f"⚠️ MPD_MODE=legacy but mpd_converter not found: {e}")
 
 PlaylistBuilder = None
 try:
     from routes.playlist_builder import PlaylistBuilder
-    logger.info("PlaylistBuilder module loaded.")
+    logger.info("✅ PlaylistBuilder module loaded.")
 except ImportError:
     logger.warning("PlaylistBuilder module not found. PlaylistBuilder functionality disabled.")
 
-# Allow mixin modules to import private helper names via star import.
-__all__ = [name for name in globals() if not name.startswith('__')]
+_STDLIB_MODULES = {
+    "asyncio", "logging", "random", "re", "sys", "os", "time", "socket",
+    "urllib", "base64", "binascii", "hashlib", "hmac", "json", "ssl",
+}
+
+class ProxyDeadRetryError(Exception):
+    """Raised when the proxy dies during playlist fetch; triggers re-extraction."""
+
+def hex_to_b64url(hex_str: str) -> str:
+    return (
+        base64.urlsafe_b64encode(binascii.unhexlify(hex_str))
+        .decode("utf-8")
+        .rstrip("=")
+    )
+
+def parse_clearkey_params(request) -> str | None:
+    clearkey = request.query.get("clearkey")
+    if clearkey:
+        return clearkey
+    key_id_param = request.query.get("key_id")
+    key_val_param = request.query.get("key")
+    if key_id_param and key_val_param:
+        key_ids = key_id_param.split(",")
+        key_vals = key_val_param.split(",")
+        if len(key_ids) == len(key_vals):
+            parts = [f"{k.strip()}:{v.strip()}" for k, v in zip(key_ids, key_vals)]
+            return ",".join(parts)
+        if len(key_ids) == 1 and len(key_vals) == 1:
+            return f"{key_id_param}:{key_val_param}"
+        logger.warning(
+            f"Mismatch in key_id/key count: {len(key_ids)} vs {len(key_vals)}"
+        )
+        min_len = min(len(key_ids), len(key_vals))
+        parts = [f"{key_ids[i].strip()}:{key_vals[i].strip()}" for i in range(min_len)]
+        return ",".join(parts)
+    elif key_val_param:
+        return key_val_param
+    return None
+
+def check_vavoo_request(headers: dict, request: web.Request, url: str) -> bool:
+    return (
+        "vavoo" in (request.query.get("h_Referer") or "").lower()
+        or "vavoo" in (request.query.get("h_Origin") or "").lower()
+        or "vavoo" in (headers.get("Referer") or "").lower()
+        or "vavoo" in (headers.get("Origin") or "").lower()
+        or "vavoo" in (request.headers.get("Referer") or "").lower()
+        or "vavoo" in url.lower()
+        or any(x in url.lower() for x in ["/sunshine/", "lokke", "mediahubmx"])
+    )
+
+def set_response_header(target: dict, name: str, value: str):
+    keys_to_remove = [k for k in target.keys() if k.lower() == name.lower()]
+    for key in keys_to_remove:
+        del target[key]
+    target[name] = value
+
+__all__ = [name for name in globals() if not name.startswith('__') and name not in _STDLIB_MODULES]
+# Commonly used stdlib modules exposed via star import for downstream compatibility
+__all__ += ["asyncio", "re", "sys", "os", "time", "json", "base64", "hashlib", "ssl", "socket", "random", "logging", "urllib"]

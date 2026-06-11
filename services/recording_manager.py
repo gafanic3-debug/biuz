@@ -52,9 +52,23 @@ class RecordingManager:
         self.db = RecordingDB(recordings_dir)
         self.processes: Dict[str, asyncio.subprocess.Process] = {}
         self.start_times: Dict[str, float] = {}
+        self._session: Optional[aiohttp.ClientSession] = None
 
         if not os.path.exists(self.recordings_dir):
             os.makedirs(self.recordings_dir)
+
+    @property
+    def session(self) -> aiohttp.ClientSession:
+        if self._session is None or self._session.closed:
+            self._session = aiohttp.ClientSession(
+                timeout=aiohttp.ClientTimeout(total=30, connect=10),
+                connector=aiohttp.TCPConnector(limit=10),
+            )
+        return self._session
+
+    async def close(self):
+        if self._session and not self._session.closed:
+            await self._session.close()
 
     # =========================================================================
     # Stream Type Detection
@@ -185,11 +199,10 @@ class RecordingManager:
             audio_playlist_url may be None if audio is embedded in video
         """
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    master_url,
-                    timeout=aiohttp.ClientTimeout(total=30)
-                ) as resp:
+            async with self.session.get(
+                master_url,
+                timeout=aiohttp.ClientTimeout(total=30)
+            ) as resp:
                     if resp.status != 200:
                         logger.error(f"Failed to fetch master playlist: {resp.status}")
                         return None, None
@@ -572,6 +585,7 @@ class RecordingManager:
         logger.info("Shutting down RecordingManager...")
         for recording_id in list(self.processes.keys()):
             await self.stop_recording(recording_id)
+        await self.close()
 
     # =========================================================================
     # Helper Methods

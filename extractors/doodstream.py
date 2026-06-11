@@ -36,8 +36,8 @@ class DoodStreamExtractor:
         self.last_used_proxy = None
         self.mediaflow_endpoint = "proxy_stream_endpoint"
         self.cache = CookieCache("dood")
-    def _get_proxy(self, url: str, bypass_warp: bool = None) -> str | None:
-        return get_preferred_proxy_for_url(url, "doodstream", self.proxies, bypass_warp)
+    async def _get_proxy(self, url: str, bypass_warp: bool = None) -> str | None:
+        return await get_preferred_proxy_for_url(url, "doodstream", self.proxies, bypass_warp)
 
     def _normalize_proxy_url(self, proxy_value: str) -> str:
         proxy_value = proxy_value.strip()
@@ -49,9 +49,9 @@ class DoodStreamExtractor:
             return f"socks5h://{proxy_value}"
         return proxy_value
 
-    def _build_scraper_proxies(self, url: str, proxy_url: str | None = None, bypass_warp: bool = None) -> dict | None:
+    async def _build_scraper_proxies(self, url: str, proxy_url: str | None = None, bypass_warp: bool = None) -> dict | None:
         if not proxy_url:
-            proxy_url = self._get_proxy(url, bypass_warp=bypass_warp)
+            proxy_url = await self._get_proxy(url, bypass_warp=bypass_warp)
         if not proxy_url:
             return None
         proxy_url = self._normalize_proxy_url(proxy_url)
@@ -195,7 +195,7 @@ class DoodStreamExtractor:
             # 1. First attempt: Use default proxy (WARP if enabled) or user-specified bypass_warp
             result = await self._do_extract_with_proxy(
                 embed_url,
-                self._build_scraper_proxies(embed_url, bypass_warp=bypass_warp),
+                await self._build_scraper_proxies(embed_url, bypass_warp=bypass_warp),
             )
             if result:
                 return result
