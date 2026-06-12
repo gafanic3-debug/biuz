@@ -13,8 +13,8 @@ import aiohttp
 from aiohttp import ClientSession, ClientTimeout, TCPConnector
 from aiohttp_socks import ProxyError as AioProxyError
 from python_socks import ProxyError as PyProxyError
-from config import TRANSPORT_ROUTES, GLOBAL_PROXIES, WARP_PROXY_URL, get_connector_for_proxy, SELECTED_PROXY_CONTEXT, STRICT_PROXY_CONTEXT, get_solver_proxy_url, get_extractor_proxies, get_ordered_proxies_for_url, should_allow_direct_fallback, mark_proxy_dead, DEAD_PROXIES, _proxy_lock
-from config import PROXY_TEST_TIMEOUT, PROXY_TEST_CONCURRENCY
+from config import WARP_PROXY_URL, get_connector_for_proxy, SELECTED_PROXY_CONTEXT, STRICT_PROXY_CONTEXT, get_solver_proxy_url, get_extractor_proxies, get_ordered_proxies_for_url, should_allow_direct_fallback, mark_proxy_dead, DEAD_PROXIES, _proxy_lock
+import config as _cfg
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +34,7 @@ class VixSrcExtractor:
         self.mediaflow_endpoint = "hls_manifest_proxy"
         self._session_lock = asyncio.Lock()
         self.proxies = []
-        for proxy in list(proxies or []) + list(GLOBAL_PROXIES):
+        for proxy in list(proxies or []) + list(_cfg.GLOBAL_PROXIES):
             if proxy and proxy not in self.proxies:
                 self.proxies.append(proxy)
         self.is_vixsrc = True
@@ -43,7 +43,7 @@ class VixSrcExtractor:
         self.last_used_direct = False
         logger.info(
             "VixSrc proxy config: transport_routes=%d dedicated_proxies=%d fallback_proxies=%d",
-            len(TRANSPORT_ROUTES),
+            len(_cfg.TRANSPORT_ROUTES),
             len(self._dedicated_proxies()),
             len(self.proxies or []),
         )
@@ -61,7 +61,7 @@ class VixSrcExtractor:
 
     def _dedicated_proxies(self) -> list[str]:
         proxies = []
-        global_proxies = {self._normalize_proxy_url(proxy) for proxy in GLOBAL_PROXIES if proxy}
+        global_proxies = {self._normalize_proxy_url(proxy) for proxy in _cfg.GLOBAL_PROXIES if proxy}
         warp_proxy = self._normalize_proxy_url(WARP_PROXY_URL) if WARP_PROXY_URL else None
         for proxy in get_extractor_proxies(self.extractor_name):
             if not proxy:
@@ -156,7 +156,7 @@ class VixSrcExtractor:
         logger.info(
             "VixSrc curl proxy lookup: url=%s transport_routes=%d dedicated_proxies=%d fallback_proxies=%d resolved=%d preferred_proxy=%s",
             url,
-            len(TRANSPORT_ROUTES),
+            len(_cfg.TRANSPORT_ROUTES),
             len(self._dedicated_proxies()),
             len(self.proxies or []),
             len(proxies_to_try),
@@ -177,8 +177,8 @@ class VixSrcExtractor:
         final_headers.pop("User-Agent", None)
         final_headers.pop("user-agent", None)
 
-        timeout = PROXY_TEST_TIMEOUT
-        concurrency = PROXY_TEST_CONCURRENCY
+        timeout = _cfg.PROXY_TEST_TIMEOUT
+        concurrency = _cfg.PROXY_TEST_CONCURRENCY
 
         async def _try_one(proxy_value: str | None, imp: str):
             request_kwargs = {}

@@ -7,9 +7,53 @@ import asyncio
 import contextvars
 import urllib.request
 from dotenv import load_dotenv
+from config_store import get as _cfg_get, set as _cfg_set, get_all as _cfg_get_all
 
-_proxy_file_cache: dict[str, tuple[float, list]] = {}
-_PROXY_FILE_TTL = 600
+_proxy_source_cache: dict[str, tuple[float, list]] = {}
+_PROXY_SOURCE_TTL = 600
+
+
+def get_extractor_proxies(extractor_name: str) -> list:
+    """Returns proxies from config_store for the given extractor.
+    Supports: direct proxy string, list (backward compat), or dict with 'file' key (file/URL source).
+    """
+    if not extractor_name:
+        return []
+    extractor_proxies = _cfg_get("extractor_proxies", {})
+    entry = extractor_proxies.get(extractor_name.lower())
+    if not entry:
+        return []
+    if isinstance(entry, str):
+        return [entry]
+    if isinstance(entry, list):
+        return entry
+    if isinstance(entry, dict) and "file" in entry:
+        return _read_proxy_source(entry["file"])
+    return []
+
+
+def _read_proxy_source(source: str) -> list:
+    now = time.time()
+    cached = _proxy_source_cache.get(source)
+    if cached and (now - cached[0]) < _PROXY_SOURCE_TTL:
+        return cached[1]
+    try:
+        if source.startswith(("http://", "https://")):
+            with urllib.request.urlopen(source, timeout=10) as resp:
+                text = resp.read().decode("utf-8", errors="ignore")
+        else:
+            with open(source, "r", encoding="utf-8") as f:
+                text = f.read()
+        proxies = []
+        for line in text.splitlines():
+            line = line.strip()
+            if line and not line.startswith("#"):
+                proxies.append(line)
+        _proxy_source_cache[source] = (now, proxies)
+        return proxies
+    except Exception as e:
+        logger.warning(f"Error reading proxy source {source}: {e}")
+        return []
 
 # ContextVar for thread-safe/async-safe warp bypass state
 BYPASS_WARP_CONTEXT = contextvars.ContextVar("bypass_warp", default=False)
@@ -20,7 +64,7 @@ PROXY_SOURCE_LIST = contextvars.ContextVar("proxy_source_list", default=None)
 load_dotenv()
 
 # --- Log Level Configuration ---
-LOG_LEVEL_STR = os.environ.get("LOG_LEVEL", "WARNING").upper()
+LOG_LEVEL_STR = "WARNING"
 LOG_LEVEL_MAP = {
     "DEBUG": logging.DEBUG,
     "INFO": logging.INFO,
@@ -29,10 +73,10 @@ LOG_LEVEL_MAP = {
     "CRITICAL": logging.CRITICAL,
 }
 LOG_LEVEL = LOG_LEVEL_MAP.get(LOG_LEVEL_STR, logging.WARNING)
-PROXY_TEST_TIMEOUT = int(os.environ.get("PROXY_TEST_TIMEOUT", "10"))
+PROXY_TEST_TIMEOUT = 10
 cpu_cores = os.cpu_count() or 4
-default_concurrency = 10 if cpu_cores == 1 else min(100, max(30, cpu_cores * 15))
-PROXY_TEST_CONCURRENCY = max(1, int(os.environ.get("PROXY_TEST_CONCURRENCY", str(default_concurrency))))
+PROXY_TEST_CONCURRENCY = 10 if cpu_cores == 1 else min(100, max(30, cpu_cores * 15))
+WARP_PROXY_URL = "socks5h://127.0.0.1:1080"
 
 logging.basicConfig(
     level=LOG_LEVEL,
@@ -56,73 +100,6 @@ class ProxyList(list):
     def __init__(self, values=(), strict: bool = False):
         super().__init__(values)
         self.strict = strict
-
-
-def _strip_env_assignment(value: str, env_var: str) -> str:
-    prefix = f"{env_var}="
-    return value[len(prefix):].strip() if value.startswith(prefix) else value
-
-
-def parse_proxies(proxy_env_var: str) -> list:
-    """Analizza una stringa di proxy separati da virgola da una variabile d'ambiente."""
-    proxies_str = _strip_env_assignment(os.environ.get(proxy_env_var, "").strip(), proxy_env_var)
-    if proxies_str:
-        proxies = []
-        for proxy in proxies_str.split(","):
-            proxy = proxy.strip()
-            if proxy.startswith("="):
-                proxy = proxy[1:].strip()
-            if proxy:
-                proxies.append(proxy)
-        return proxies
-    return []
-
-
-def parse_proxy_file(proxy_file_env_var: str) -> list:
-    """Read proxies from comma-separated file paths/URLs, one proxy per line. Cached for 10 min."""
-    raw = _strip_env_assignment(os.environ.get(proxy_file_env_var, "").strip(), proxy_file_env_var)
-    if not raw:
-        return []
-    now = time.time()
-    cached = _proxy_file_cache.get(raw)
-    if cached and (now - cached[0]) < _PROXY_FILE_TTL:
-        return cached[1]
-    proxies = []
-    for path in raw.split(","):
-        path = path.strip()
-        if not path:
-            continue
-        try:
-            if path.startswith(("http://", "https://")):
-                with urllib.request.urlopen(path, timeout=10) as response:
-                    text = response.read().decode("utf-8", errors="ignore")
-            else:
-                with open(path, "r", encoding="utf-8") as file:
-                    text = file.read()
-            for line in text.splitlines():
-                line = line.strip()
-                if line.startswith("="):
-                    line = line[1:].strip()
-                if not line or line.startswith("#"):
-                    continue
-                if line not in proxies:
-                    proxies.append(line)
-        except Exception as e:
-            logger.warning(f"Error reading proxy file {path}: {e}")
-    _proxy_file_cache[raw] = (now, proxies)
-    return proxies
-
-
-def get_extractor_proxies(extractor_name: str) -> list:
-    """Returns proxies from EXTRACTOR_PROXY and EXTRACTOR_PROXY_FILE env vars."""
-    if not extractor_name:
-        return []
-    prefix = extractor_name.upper().replace('-', '_')
-    proxies = []
-    for proxy in parse_proxies(f"{prefix}_PROXY") + parse_proxy_file(f"{prefix}_PROXY_FILE"):
-        if proxy and proxy not in proxies:
-            proxies.append(proxy)
-    return proxies
 
 
 def get_preferred_proxy(proxies: list | None) -> str | None:
@@ -220,6 +197,41 @@ def get_transport_route_proxy(url: str, transport_routes: list) -> str | None:
     return None
 
 
+def _get_dynamic_warp_enabled() -> bool:
+    return _cfg_get("enable_warp", False)
+
+def _get_dynamic_warp_exclude_domains() -> list:
+    defaults = _cfg_get("warp_exclude_domains", [])
+    custom = _cfg_get("warp_exclude_domains_custom", [])
+    seen = set()
+    merged = []
+    for d in defaults + custom:
+        if d not in seen:
+            seen.add(d)
+            merged.append(d)
+    return merged
+
+def _is_warp_excluded(url: str) -> bool:
+    normalized = url.lower()
+    for domain in WARP_EXCLUDE_DOMAINS:
+        stripped = domain.lstrip("*.")
+        if stripped in normalized:
+            return True
+    return False
+
+def _get_dynamic_global_proxies() -> list:
+    return _cfg_get("global_proxies", [])
+
+def _get_dynamic_transport_routes() -> list:
+    return _cfg_get("transport_routes", [])
+
+def _get_dynamic_proxy_test_concurrency() -> int:
+    val = _cfg_get("proxy_test_concurrency")
+    if val is None or val == 0:
+        cpus = os.cpu_count() or 4
+        return 10 if cpus == 1 else min(100, max(30, cpus * 15))
+    return int(val)
+
 def get_ordered_proxies_for_url(
     url: str | None,
     extractor_name: str = "",
@@ -240,6 +252,12 @@ def get_ordered_proxies_for_url(
         if proxy and proxy not in ordered:
             ordered.append(proxy)
 
+    _ENABLE_WARP = _get_dynamic_warp_enabled()
+    _WARP_PROXY_URL = WARP_PROXY_URL
+    _WARP_EXCLUDE_DOMAINS = _get_dynamic_warp_exclude_domains()
+    _GLOBAL_PROXIES = _get_dynamic_global_proxies()
+    _TRANSPORT_ROUTES = _get_dynamic_transport_routes()
+
     selected_proxy = SELECTED_PROXY_CONTEXT.get()
     selected_proxy_is_strict = STRICT_PROXY_CONTEXT.get()
     if selected_proxy and selected_proxy_is_strict:
@@ -249,9 +267,9 @@ def get_ordered_proxies_for_url(
     if extractor_proxies:
         return build(extractor_proxies, strict=True)
 
-    if url and TRANSPORT_ROUTES:
+    if url and _TRANSPORT_ROUTES:
         normalized_url = url.lower()
-        for route in TRANSPORT_ROUTES:
+        for route in _TRANSPORT_ROUTES:
             url_pattern = route["url"].lower()
             if url_pattern in normalized_url:
                 proxy_value = route.get("proxy")
@@ -265,15 +283,15 @@ def get_ordered_proxies_for_url(
     for proxy in fallback_proxies or []:
         add(proxy)
 
-    for proxy in GLOBAL_PROXIES:
+    for proxy in _GLOBAL_PROXIES:
         add(proxy)
 
     if bypass_warp is None:
         bypass_warp = BYPASS_WARP_CONTEXT.get()
     normalized_url = (url or "").lower()
-    is_excluded = any(domain in normalized_url for domain in WARP_EXCLUDE_DOMAINS)
-    if ENABLE_WARP and not bypass_warp and not is_excluded:
-        add(WARP_PROXY_URL)
+    is_excluded = _is_warp_excluded(url or "")
+    if _ENABLE_WARP and not bypass_warp and not is_excluded:
+        add(_WARP_PROXY_URL)
 
     return ProxyList(ordered, strict=False)
 
@@ -318,50 +336,6 @@ async def get_preferred_proxy_for_url_async(
     if result:
         SELECTED_PROXY_CONTEXT.set(result)
     return result
-
-
-def parse_transport_routes() -> list:
-    """Analizza TRANSPORT_ROUTES nel formato {URL=domain, PROXY=proxy, DISABLE_SSL=true/false}."""
-    routes_str = os.environ.get("TRANSPORT_ROUTES", "").strip()
-    if not routes_str:
-        return []
-
-    routes = []
-    try:
-        route_parts = [part.strip() for part in routes_str.replace(" ", "").split("},{")]
-
-        for part in route_parts:
-            if not part:
-                continue
-
-            part = part.strip("{}")
-
-            url_match = None
-            proxy_match = None
-            disable_ssl_match = None
-
-            for item in part.split(","):
-                if item.startswith("URL="):
-                    url_match = item[4:]
-                elif item.startswith("PROXY="):
-                    proxy_match = item[6:]
-                elif item.startswith("DISABLE_SSL="):
-                    disable_ssl_str = item[12:].lower()
-                    disable_ssl_match = disable_ssl_str in ("true", "1", "yes", "on")
-
-            if url_match:
-                routes.append(
-                    {
-                        "url": url_match,
-                        "proxy": proxy_match if proxy_match else None,
-                        "disable_ssl": disable_ssl_match if disable_ssl_match is not None else False,
-                    }
-                )
-
-    except Exception as e:
-        logger.warning(f"Error parsing TRANSPORT_ROUTES: {e}")
-
-    return routes
 
 
 _PROXY_STATUS_CACHE = {"alive": True, "last_check": 0}
@@ -452,7 +426,8 @@ def mark_proxy_dead(proxy_url: str, dead_duration: int = 300):
     if not proxy_url:
         return
 
-    if WARP_PROXY_URL and proxy_url == WARP_PROXY_URL:
+    _WARP_PROXY_URL = WARP_PROXY_URL
+    if _WARP_PROXY_URL and proxy_url == _WARP_PROXY_URL:
         if "127.0.0.1" in proxy_url:
             with _proxy_lock:
                 _PROXY_STATUS_CACHE["last_check"] = 0
@@ -471,6 +446,10 @@ def mark_proxy_dead(proxy_url: str, dead_duration: int = 300):
 
 
 _proxy_affinity: dict = {}
+
+def clear_proxy_affinity():
+    _proxy_affinity.clear()
+
 def _get_stream_key(url: str) -> str | None:
     if not url:
         return None
@@ -494,10 +473,22 @@ def _next_from_source(current_proxy: str | None) -> str | None:
     return None
 
 
-def get_proxy_for_url(url: str, transport_routes: list, global_proxies: list, bypass_warp: bool = None) -> str:
-    """Trova il proxy appropriato per un URL basato su TRANSPORT_ROUTES e impostazioni WARP."""
+def get_proxy_for_url(url: str, transport_routes: list = None, global_proxies: list = None, bypass_warp: bool = None) -> str:
+    """Trova il proxy appropriato per un URL basato su TRANSPORT_ROUTES e impostazioni WARP.
+    
+    If transport_routes or global_proxies are None, reads from dynamic config_store.
+    """
     if bypass_warp is None:
         bypass_warp = BYPASS_WARP_CONTEXT.get()
+    
+    _ENABLE_WARP = _get_dynamic_warp_enabled()
+    _WARP_PROXY_URL = WARP_PROXY_URL
+    _WARP_EXCLUDE_DOMAINS = _get_dynamic_warp_exclude_domains()
+    if transport_routes is None:
+        transport_routes = _get_dynamic_transport_routes()
+    if global_proxies is None:
+        global_proxies = _get_dynamic_global_proxies()
+
     if not url:
         selected_proxy = SELECTED_PROXY_CONTEXT.get()
         if selected_proxy and STRICT_PROXY_CONTEXT.get():
@@ -508,7 +499,15 @@ def get_proxy_for_url(url: str, transport_routes: list, global_proxies: list, by
     if stream_key and stream_key in _proxy_affinity:
         cached_proxy, timestamp = _proxy_affinity[stream_key]
         if time.time() - timestamp < 120 and is_proxy_alive(cached_proxy):
-            return cached_proxy
+            # If cached proxy is WARP, validate WARP is still enabled
+            if cached_proxy == _WARP_PROXY_URL:
+                is_excluded = _is_warp_excluded(url)
+                if _ENABLE_WARP and not bypass_warp and not is_excluded:
+                    return cached_proxy
+                # WARP no longer valid, remove from cache
+                del _proxy_affinity[stream_key]
+            else:
+                return cached_proxy
 
     normalized_url = url.lower()
 
@@ -553,14 +552,14 @@ def get_proxy_for_url(url: str, transport_routes: list, global_proxies: list, by
         return proxy
 
     # Check if WARP should be used only when no explicit proxy is configured.
-    is_excluded = any(domain in normalized_url for domain in WARP_EXCLUDE_DOMAINS)
+    is_excluded = _is_warp_excluded(url)
 
-    if ENABLE_WARP and not bypass_warp and not is_excluded:
-        warp_alive = is_proxy_alive(WARP_PROXY_URL)
+    if _ENABLE_WARP and not bypass_warp and not is_excluded:
+        warp_alive = is_proxy_alive(_WARP_PROXY_URL)
         if warp_alive:
             if stream_key:
-                _proxy_affinity[stream_key] = (WARP_PROXY_URL, time.time())
-            return WARP_PROXY_URL
+                _proxy_affinity[stream_key] = (_WARP_PROXY_URL, time.time())
+            return _WARP_PROXY_URL
         return None
 
     proxy = SELECTED_PROXY_CONTEXT.get()
@@ -645,7 +644,9 @@ def build_proxy_with_auth(proxy_url: str | None) -> dict | None:
     return result
 
 
-def get_ssl_setting_for_url(url: str, transport_routes: list) -> bool:
+def get_ssl_setting_for_url(url: str, transport_routes: list = None) -> bool:
+    if transport_routes is None:
+        transport_routes = _get_dynamic_transport_routes()
     """Determina se SSL deve essere disabilitato per un URL basato su TRANSPORT_ROUTES."""
     normalized_url = (url or "").lower()
 
@@ -669,106 +670,14 @@ def get_ssl_setting_for_url(url: str, transport_routes: list) -> bool:
 
 
 
-_warp_env = os.environ.get("ENABLE_WARP", "").strip().lower()
-WARP_PROXY_URL = os.environ.get("WARP_PROXY_URL", "").strip() or "socks5h://127.0.0.1:1080"
-if _warp_env == "true":
-    ENABLE_WARP = True
-elif _warp_env == "false":
-    ENABLE_WARP = False
-else:
-    ENABLE_WARP = False
-    try:
-        import urllib.request as _ur
-        req = _ur.Request("https://www.cloudflare.com/cdn-cgi/trace",
-                          headers={"User-Agent": "curl/8.0"})
-        body = _ur.urlopen(req, timeout=3).read().decode()
-        if "warp=on" in body:
-            ENABLE_WARP = True
-    except Exception as _warp_e:
-        import logging as _warp_log
-        _warp_log.getLogger("config").debug("WARP auto-detect failed: %s", _warp_e)
-
-_default_warp_exclude_domains = [
-    "strem.fun",
-    "*.strem.fun",
-    "torrentio.strem.fun",
-    "real-debrid.com",
-    "*.real-debrid.com",
-    "realdebrid.com",
-    "*.realdebrid.com",
-    "api.real-debrid.com",
-    "premiumize.me",
-    "*.premiumize.me",
-    "www.premiumize.me",
-    "alldebrid.com",
-    "*.alldebrid.com",
-    "api.alldebrid.com",
-    "debrid-link.com",
-    "*.debrid-link.com",
-    "debridlink.com",
-    "*.debridlink.com",
-    "api.debrid-link.com",
-    "torbox.app",
-    "*.torbox.app",
-    "api.torbox.app",
-    "offcloud.com",
-    "*.offcloud.com",
-    "api.offcloud.com",
-    "put.io",
-    "*.put.io",
-    "api.put.io",
-]
-WARP_EXCLUDE_DOMAINS = [
-    domain.strip().lower()
-    for domain in os.environ.get("WARP_EXCLUDED_HOSTS", ",".join(_default_warp_exclude_domains)).split(",")
-    if domain.strip()
-]
-
-GLOBAL_PROXIES = parse_proxies("GLOBAL_PROXY")
-TRANSPORT_ROUTES = parse_transport_routes()
-
-if GLOBAL_PROXIES:
-    logging.info(f"Loaded {len(GLOBAL_PROXIES)} global proxies.")
-if TRANSPORT_ROUTES:
-    logging.info(f"Loaded {len(TRANSPORT_ROUTES)} transport rules.")
-
 API_PASSWORD = os.environ.get("API_PASSWORD")
 PORT = int(os.environ.get("PORT", 7860))
 
-# --- Recording/DVR Configuration ---
-DVR_ENABLED = os.environ.get("DVR_ENABLED", "false").lower() in ("true", "1", "yes")
-RECORDINGS_DIR = os.environ.get("RECORDINGS_DIR", "recordings")
-MAX_RECORDING_DURATION = int(os.environ.get("MAX_RECORDING_DURATION", 28800))
-RECORDINGS_RETENTION_DAYS = int(os.environ.get("RECORDINGS_RETENTION_DAYS", 7))
-
 # --- Version/Mode Configuration ---
-APP_VERSION = "2.8.17"
+APP_VERSION = "2.9.04"
 
 _has_solvers = os.path.exists("flaresolverr")
 VERSION_MODE = "Full" if _has_solvers else "Light"
-
-if DVR_ENABLED and not os.path.exists(RECORDINGS_DIR):
-    os.makedirs(RECORDINGS_DIR)
-    logging.info(f"Created recordings directory: {RECORDINGS_DIR}")
-
-_mpd_mode_env = os.environ.get("MPD_MODE", "legacy").lower()
-
-if _mpd_mode_env in ("ffmpeg", "legacy", "none", "disabled"):
-    MPD_MODE = _mpd_mode_env
-else:
-    logging.warning(f"MPD_MODE '{_mpd_mode_env}' non valida. Uso 'legacy'.")
-    MPD_MODE = "legacy"
-
-ENABLE_REMUXING = os.environ.get("ENABLE_REMUXING", "true").lower() in ("true", "1", "yes")
-if MPD_MODE in ("none", "disabled"):
-    ENABLE_REMUXING = False
-
-if "MPD_MODE" in os.environ:
-    logging.info(f"MPD Mode: {MPD_MODE} (Remuxing: {'ON' if ENABLE_REMUXING else 'OFF'})")
-
-# --- FlareSolverr Configuration ---
-FLARESOLVERR_URL = os.environ.get("FLARESOLVERR_URL", "http://localhost:8191").rstrip("/")
-FLARESOLVERR_TIMEOUT = int(os.environ.get("FLARESOLVERR_TIMEOUT", 30))
 
 
 def check_password(request):
@@ -783,4 +692,71 @@ def check_password(request):
     if request.headers.get("x-api-password") == API_PASSWORD:
         return True
 
+    # Cookie-based auth (set by /api/admin/login)
+    if request.cookies.get("admin_token") == API_PASSWORD:
+        return True
+
     return False
+
+
+def reload_config():
+    """Re-reads dynamic config from config_store.json into module-level names for backward compat."""
+    # This is called after config_store changes to update module globals
+    import sys
+    mod = sys.modules[__name__]
+    mod.ENABLE_WARP = _get_dynamic_warp_enabled()
+    mod.WARP_EXCLUDE_DOMAINS = _get_dynamic_warp_exclude_domains()
+    mod.GLOBAL_PROXIES = _get_dynamic_global_proxies()
+    mod.TRANSPORT_ROUTES = _get_dynamic_transport_routes()
+    mod.MPD_MODE = _cfg_get("mpd_mode", "legacy")
+    mod.DVR_ENABLED = _cfg_get("dvr_enabled", False)
+    mod.RECORDINGS_DIR = _cfg_get("recordings_dir", "/data/recordings")
+    mod.MAX_RECORDING_DURATION = _cfg_get("max_recording_duration", 28800)
+    mod.RECORDINGS_RETENTION_DAYS = _cfg_get("recordings_retention_days", 7)
+    mod.FLARESOLVERR_URL = _cfg_get("flaresolverr_url", "http://localhost:8191")
+    mod.FLARESOLVERR_TIMEOUT = _cfg_get("flaresolverr_timeout", 30)
+    mod.ENABLE_REMUXING = _cfg_get("enable_remuxing", True)
+    mod.PROXY_TEST_TIMEOUT = _cfg_get("proxy_test_timeout", 10)
+    mod.PROXY_TEST_CONCURRENCY = _get_dynamic_proxy_test_concurrency()
+    mod.SEGMENT_CACHE_TTL = _cfg_get("segment_cache_ttl", 30)
+    mod.LOG_LEVEL_STR = _cfg_get("log_level", LOG_LEVEL_STR)
+    _level = LOG_LEVEL_MAP.get(mod.LOG_LEVEL_STR.upper(), logging.WARNING)
+    logging.getLogger().setLevel(_level)
+    for _name in logging.root.manager.loggerDict:
+        logging.getLogger(_name).setLevel(_level)
+    for _handler in logging.getLogger().handlers:
+        _handler.setLevel(_level)
+    mod.WARP_LICENSE_KEY = _cfg_get("warp_license_key", "")
+
+
+# Initialize module-level names with values from config_store
+reload_config()
+
+
+def __getattr__(name):
+    """Dynamic attribute resolution for config values at module level.
+    Allows `import config; config.ENABLE_WARP` to always return the current value.
+    """
+    _dynamic_attrs = {
+        "ENABLE_WARP": _get_dynamic_warp_enabled,
+        "WARP_EXCLUDE_DOMAINS": _get_dynamic_warp_exclude_domains,
+        "GLOBAL_PROXIES": _get_dynamic_global_proxies,
+        "TRANSPORT_ROUTES": _get_dynamic_transport_routes,
+        "MPD_MODE": lambda: _cfg_get("mpd_mode", "legacy"),
+        "DVR_ENABLED": lambda: _cfg_get("dvr_enabled", False),
+        "RECORDINGS_DIR": lambda: _cfg_get("recordings_dir", "/data/recordings"),
+        "MAX_RECORDING_DURATION": lambda: _cfg_get("max_recording_duration", 28800),
+        "RECORDINGS_RETENTION_DAYS": lambda: _cfg_get("recordings_retention_days", 7),
+        "FLARESOLVERR_URL": lambda: _cfg_get("flaresolverr_url", "http://localhost:8191"),
+        "FLARESOLVERR_TIMEOUT": lambda: _cfg_get("flaresolverr_timeout", 30),
+        "ENABLE_REMUXING": lambda: _cfg_get("enable_remuxing", True),
+        "WARP_LICENSE_KEY": lambda: _cfg_get("warp_license_key", ""),
+        "PROXY_TEST_TIMEOUT": lambda: int(_cfg_get("proxy_test_timeout", 10)),
+        "PROXY_TEST_CONCURRENCY": _get_dynamic_proxy_test_concurrency,
+        "SEGMENT_CACHE_TTL": lambda: int(_cfg_get("segment_cache_ttl", 30)),
+        "LOG_LEVEL_STR": lambda: str(_cfg_get("log_level", "WARNING")),
+    }
+    getter = _dynamic_attrs.get(name)
+    if getter:
+        return getter()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

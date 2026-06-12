@@ -8,7 +8,8 @@ from typing import Dict, Any
 import random
 import aiohttp
 from aiohttp import ClientSession, ClientTimeout, TCPConnector
-from config import GLOBAL_PROXIES, get_connector_for_proxy, get_preferred_proxy_for_url
+from config import get_connector_for_proxy, get_preferred_proxy_for_url
+import config as _cfg
 
 
 logger = logging.getLogger(__name__)
@@ -64,7 +65,7 @@ class SportsonlineExtractor:
         self.session = None
         self.mediaflow_endpoint = "hls_manifest_proxy"
         self._session_lock = asyncio.Lock()
-        self.proxies = proxies or GLOBAL_PROXIES
+        self.proxies = proxies or _cfg.GLOBAL_PROXIES
         self._session_proxy = None
 
     def _get_random_proxy(self):

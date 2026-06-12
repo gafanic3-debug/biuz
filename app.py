@@ -15,17 +15,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from services.proxy import HLSProxy
 from services.ffmpeg_manager import FFmpegManager
-from config import PORT, DVR_ENABLED, RECORDINGS_DIR, MAX_RECORDING_DURATION, RECORDINGS_RETENTION_DAYS, APP_VERSION
-
-# Only import DVR components if enabled
-if DVR_ENABLED:
-    from services.recording_manager import RecordingManager
-    from routes.recordings import setup_recording_routes
-
-# Only import DVR components if enabled
-if DVR_ENABLED:
-    from services.recording_manager import RecordingManager
-    from routes.recordings import setup_recording_routes
+from config import PORT, RECORDINGS_DIR, APP_VERSION
+from services.recording_manager import RecordingManager
+from routes.recordings import setup_recording_routes
 
 logger = logging.getLogger(__name__)
 
@@ -50,14 +42,11 @@ def create_app():
     app.ffmpeg_manager = ffmpeg_manager # Hack for access in route handler above function
     app['proxy'] = proxy
 
-    # Initialize recording manager for DVR functionality (only if enabled)
-    if DVR_ENABLED:
-        recording_manager = RecordingManager(
-            recordings_dir=RECORDINGS_DIR,
-            max_duration=MAX_RECORDING_DURATION,
-            retention_days=RECORDINGS_RETENTION_DAYS
-        )
-        app['recording_manager'] = recording_manager
+    # Initialize recording manager for DVR functionality
+    recording_manager = RecordingManager(
+        recordings_dir=RECORDINGS_DIR
+    )
+    app['recording_manager'] = recording_manager
     
     # Registra le route
     app.router.add_get('/', proxy.handle_root)
@@ -202,9 +191,21 @@ def create_app():
     app.router.add_get('/proxy/ip', proxy.handle_proxy_ip)
     # ✅ Health check endpoint
     app.router.add_get('/health', lambda r: web.json_response({"status": "ok", "version": APP_VERSION}))
-    # Setup recording/DVR routes (only if enabled)
-    if DVR_ENABLED:
-        setup_recording_routes(app, recording_manager)
+
+    # Admin Panel
+    app.router.add_get('/admin', proxy.handle_admin)
+    app.router.add_get('/admin/login', proxy.handle_admin_login)
+    app.router.add_post('/api/admin/login', proxy.handle_admin_api_login)
+    app.router.add_get('/admin/logout', proxy.handle_admin_logout)
+    app.router.add_get('/api/admin/config', proxy.handle_admin_api_get)
+    app.router.add_post('/api/admin/config', proxy.handle_admin_api_update)
+    app.router.add_get('/api/admin/config/download', proxy.handle_admin_api_download)
+    app.router.add_post('/api/admin/config/upload', proxy.handle_admin_api_upload)
+    app.router.add_post('/api/admin/warp/toggle', proxy.handle_admin_api_warp_toggle)
+    app.router.add_post('/api/admin/warp/reconnect', proxy.handle_admin_api_warp_reconnect)
+    app.router.add_post('/api/admin/extractor/proxy', proxy.handle_admin_api_extractor_proxy)
+    # Setup recording/DVR routes
+    setup_recording_routes(app, recording_manager)
     
     # Gestore OPTIONS generico per CORS
     app.router.add_route('OPTIONS', '/{tail:.*}', proxy.handle_options)
@@ -218,13 +219,11 @@ def create_app():
     async def on_startup(app):
         asyncio.create_task(ffmpeg_manager.cleanup_loop())
         asyncio.create_task(proxy.start_tasks())
-        if DVR_ENABLED:
-            asyncio.create_task(recording_manager.cleanup_loop())
+        asyncio.create_task(recording_manager.cleanup_loop())
     app.on_startup.append(on_startup)
 
     async def on_shutdown(app):
-        if DVR_ENABLED:
-            await recording_manager.shutdown()
+        await recording_manager.shutdown()
     app.on_shutdown.append(on_shutdown)
     
     return app

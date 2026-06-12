@@ -7,8 +7,8 @@ import urllib.parse
 from typing import Any, Optional
 
 import aiohttp
-from config import FLARESOLVERR_URL, FLARESOLVERR_TIMEOUT, GLOBAL_PROXIES, get_solver_proxy_url, build_proxy_with_auth, get_ordered_proxies_for_url, should_allow_direct_fallback
-from config import PROXY_TEST_TIMEOUT
+import config as _cfg
+from config import FLARESOLVERR_URL, FLARESOLVERR_TIMEOUT, get_solver_proxy_url, build_proxy_with_auth, get_ordered_proxies_for_url, should_allow_direct_fallback
 from curl_cffi.requests import AsyncSession
 from utils.solver_manager import ensure_flaresolverr
 
@@ -22,7 +22,7 @@ class CinemaCityExtractor:
 
     def __init__(self, request_headers: dict, proxies: list = None):
         self.request_headers = request_headers
-        self.proxies = proxies or GLOBAL_PROXIES
+        self.proxies = proxies or _cfg.GLOBAL_PROXIES
         self._cookies = None
         self._user_agent = None
         self.base_url = "https://cinemacity.cc"
@@ -90,7 +90,7 @@ class CinemaCityExtractor:
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
                 "Accept-Language": "en-US,en;q=0.5",
                 "Referer": "https://cinemacity.cc/",
-            }, timeout=PROXY_TEST_TIMEOUT, **request_kwargs)
+            }, timeout=_cfg.PROXY_TEST_TIMEOUT, **request_kwargs)
             html = r.text
             resp_cookies = dict(r.cookies) if hasattr(r, 'cookies') else {}
             logger.info(f"CinemaCity: curl_cffi status={r.status_code} len={len(html)}")

@@ -36,21 +36,15 @@ except ImportError:
     HAS_CURL_CFFI = False
     CurlAsyncSession = None
 
+import config as _config
 from config import (
-    GLOBAL_PROXIES,
-    TRANSPORT_ROUTES,
     get_proxy_for_url,
     get_ssl_setting_for_url,
     get_connector_for_proxy,
     API_PASSWORD,
     check_password,
-    MPD_MODE,
     VERSION_MODE,
     APP_VERSION,
-    ENABLE_WARP,
-    ENABLE_REMUXING,
-    WARP_EXCLUDE_DOMAINS,
-    WARP_PROXY_URL,
     BYPASS_WARP_CONTEXT,
     SELECTED_PROXY_CONTEXT,
     STRICT_PROXY_CONTEXT,
@@ -64,7 +58,7 @@ from services.manifest_rewriter import ManifestRewriter
 # Global registry for domains already bypassed in WARP to avoid redundant os.system calls
 BYPASSED_WARP_DOMAINS = set()
 
-# Legacy MPD converter (used when MPD_MODE is not ffmpeg)
+# Legacy MPD converter (always attempt loading for runtime MPD_MODE changes)
 MPDToHLSConverter = None
 decrypt_segment = None
 
@@ -73,12 +67,11 @@ try:
 except ImportError:
     pass
 
-if MPD_MODE in ("legacy", "none", "disabled"):
-    try:
-        from utils.mpd_converter import MPDToHLSConverter
-        logger.info("✅ Legacy MPD converter loaded")
-    except ImportError as e:
-        logger.warning(f"⚠️ MPD_MODE=legacy but mpd_converter not found: {e}")
+try:
+    from utils.mpd_converter import MPDToHLSConverter
+    logger.info("✅ Legacy MPD converter loaded")
+except ImportError as e:
+    logger.warning(f"⚠️ Legacy MPD converter not available: {e}")
 
 PlaylistBuilder = None
 try:
@@ -142,6 +135,20 @@ def set_response_header(target: dict, name: str, value: str):
     for key in keys_to_remove:
         del target[key]
     target[name] = value
+
+_DYNAMIC_CONFIG_NAMES = {
+    "GLOBAL_PROXIES", "TRANSPORT_ROUTES", "ENABLE_WARP", "WARP_PROXY_URL",
+    "WARP_EXCLUDE_DOMAINS", "MPD_MODE", "ENABLE_REMUXING", "DVR_ENABLED",
+    "RECORDINGS_DIR", "MAX_RECORDING_DURATION", "RECORDINGS_RETENTION_DAYS",
+    "FLARESOLVERR_URL", "FLARESOLVERR_TIMEOUT", "WARP_OFF_EXTRACTORS",
+    "WARP_LICENSE_KEY", "PROXY_TEST_TIMEOUT", "PROXY_TEST_CONCURRENCY",
+    "SEGMENT_CACHE_TTL", "LOG_LEVEL_STR",
+}
+
+def __getattr__(name):
+    if name in _DYNAMIC_CONFIG_NAMES:
+        return getattr(_config, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 __all__ = [name for name in globals() if not name.startswith('__') and name not in _STDLIB_MODULES]
 # Commonly used stdlib modules exposed via star import for downstream compatibility

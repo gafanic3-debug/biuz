@@ -11,7 +11,7 @@ from typing import Dict, List, Optional, Any, Tuple
 from urllib.parse import urlencode
 
 import aiohttp
-
+import config_store
 from services.recording_db import RecordingDB
 from config import PORT, API_PASSWORD
 
@@ -44,18 +44,14 @@ class RecordingManager:
     RECONNECT_TYPES = {StreamType.VAVOO, StreamType.FREESHOT,
                        StreamType.SPORTSONLINE, StreamType.MPD}
 
-    def __init__(self, recordings_dir: str, max_duration: int = 28800,
-                 retention_days: int = 7):
+    def __init__(self, recordings_dir: str):
         self.recordings_dir = recordings_dir
-        self.max_duration = max_duration
-        self.retention_days = retention_days
+        if not os.path.exists(self.recordings_dir):
+            os.makedirs(self.recordings_dir)
         self.db = RecordingDB(recordings_dir)
         self.processes: Dict[str, asyncio.subprocess.Process] = {}
         self.start_times: Dict[str, float] = {}
         self._session: Optional[aiohttp.ClientSession] = None
-
-        if not os.path.exists(self.recordings_dir):
-            os.makedirs(self.recordings_dir)
 
     @property
     def session(self) -> aiohttp.ClientSession:
@@ -351,13 +347,17 @@ class RecordingManager:
             return None
 
         filename = self._generate_filename(recording_id, name)
-        file_path = os.path.join(self.recordings_dir, filename)
+        recordings_dir = config_store.get("recordings_dir", self.recordings_dir)
+        file_path = os.path.join(recordings_dir, filename)
+        if not os.path.exists(recordings_dir):
+            os.makedirs(recordings_dir)
 
         # Apply duration limits
+        max_duration = config_store.get("max_recording_duration", 28800)
         if duration:
-            duration = min(duration, self.max_duration)
+            duration = min(duration, max_duration)
         else:
-            duration = self.max_duration
+            duration = max_duration
 
         # Prepare stream-specific configuration
         config = await self._prepare_stream_config(url, clearkey)
@@ -566,7 +566,8 @@ class RecordingManager:
 
     async def cleanup_old_recordings(self):
         """Delete recordings older than retention period."""
-        old_recordings = self.db.get_old_recordings(self.retention_days)
+        retention = config_store.get("recordings_retention_days", 7)
+        old_recordings = self.db.get_old_recordings(retention)
         for recording in old_recordings:
             logger.info(f"Auto-deleting old recording: {recording['id']}")
             await self.delete_recording(recording['id'])

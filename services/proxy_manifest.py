@@ -2,6 +2,7 @@ import asyncio
 import time
 import urllib.parse
 import aiohttp
+import services.proxy_shared as _shared
 from services.proxy_shared import (
     logger,
     web,
@@ -13,16 +14,13 @@ from services.proxy_shared import (
     check_vavoo_request,
     should_use_short_captured_manifest_urls,
     parse_clearkey_params,
-    MPD_MODE,
     MPDToHLSConverter,
     get_ssl_setting_for_url,
-    TRANSPORT_ROUTES,
     AioProxyError,
     PyProxyError,
     ClientConnectionError,
     ProxyDeadRetryError,
     get_proxy_for_url,
-    GLOBAL_PROXIES,
     is_expired_embed_error,
     extractor_name_for_log,
 )
@@ -389,9 +387,10 @@ class HLSProxyManifestHandlerMixin:
             # ✅ MPD/DASH handling based on MPD_MODE
             # ✅ FIX: Refined MPD/DASH detection. Use specific patterns to avoid false positives
             # (e.g. "dashinripe" in URL being mistaken for a DASH manifest).
+            _MPD_MODE = _shared.MPD_MODE
             is_mpd = ".mpd" in stream_url.lower() or "/dash/" in stream_url.lower()
             if is_mpd:
-                if MPD_MODE == "ffmpeg" and self.ffmpeg_manager:
+                if _MPD_MODE == "ffmpeg" and self.ffmpeg_manager:
                     # FFmpeg transcoding mode
                     logger.info(
                         f"🔄 [FFmpeg Mode] Routing MPD stream: {stream_url}"
@@ -450,9 +449,7 @@ class HLSProxyManifestHandlerMixin:
 
                     # Fetch the MPD manifest with proxy support
                     ssl_context = None
-                    disable_ssl = get_ssl_setting_for_url(
-                        stream_url, TRANSPORT_ROUTES
-                    )
+                    disable_ssl = get_ssl_setting_for_url(stream_url)
                     if disable_ssl:
                         ssl_context = False
 
@@ -634,7 +631,7 @@ class HLSProxyManifestHandlerMixin:
                         if "://" not in original_proxy and "%3a" in original_proxy.lower():
                             original_proxy = urllib.parse.unquote(original_proxy)
                     if not selected_proxy2 and original_proxy:
-                        new_proxy = get_proxy_for_url(stream_url2, TRANSPORT_ROUTES, GLOBAL_PROXIES, bypass_warp=bypass_warp)
+                        new_proxy = get_proxy_for_url(stream_url2, bypass_warp=bypass_warp)
                         if new_proxy and new_proxy != original_proxy:
                             logger.info("Rotating to new proxy: %s", new_proxy)
                             selected_proxy2 = new_proxy

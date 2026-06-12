@@ -1,11 +1,15 @@
 import os
+import json
 import urllib.parse
+import services.proxy_shared as _shared
 from services.proxy_shared import (
-    logger, web, ENABLE_WARP, WARP_PROXY_URL, APP_VERSION, VERSION_MODE,
+    logger, web, APP_VERSION, VERSION_MODE,
     check_password, PlaylistBuilder, ClientSession, ClientTimeout,
     TCPConnector, ProxyConnector, get_connector_for_proxy, API_PASSWORD,
-    GLOBAL_PROXIES,
 )
+from extractors.registry import *
+import config_store
+from config import reload_config, clear_proxy_affinity
 
 class HLSProxyPagesMixin:
 
@@ -247,11 +251,11 @@ class HLSProxyPagesMixin:
                 "streamtape_extractor": StreamtapeExtractor is not None,
             },
             "proxy_config": {
-                "global_proxies": f"{len(GLOBAL_PROXIES)} proxies loaded",
-                "transport_routes": f"{len(TRANSPORT_ROUTES)} routing rules configured",
+                "global_proxies": f"{len(_shared.GLOBAL_PROXIES)} proxies loaded",
+                "transport_routes": f"{len(_shared.TRANSPORT_ROUTES)} routing rules configured",
                 "routes": [
                     {"url": route["url"], "has_proxy": route["proxy"] is not None}
-                    for route in TRANSPORT_ROUTES
+                    for route in _shared.TRANSPORT_ROUTES
                 ],
             },
             "endpoints": {
@@ -522,9 +526,9 @@ class HLSProxyPagesMixin:
             # --- LOGGING RICHIESTO ---
             client_ip = request.remote
             exit_strategy = "IP del Server (Diretto)"
-            if GLOBAL_PROXIES:
+            if _shared.GLOBAL_PROXIES:
                 exit_strategy = (
-                    f"Proxy Globale Random (Pool di {len(GLOBAL_PROXIES)} proxy)"
+                    f"Proxy Globale Random (Pool di {len(_shared.GLOBAL_PROXIES)} proxy)"
                 )
 
             logger.info(f"🔄 [Generate URLs] Richiesta da Client IP: {client_ip}")
@@ -594,7 +598,7 @@ class HLSProxyPagesMixin:
 
         try:
             # Usa un proxy globale se configurato, altrimenti connessione diretta
-            proxy = random.choice(GLOBAL_PROXIES) if GLOBAL_PROXIES else None
+            proxy = random.choice(_shared.GLOBAL_PROXIES) if _shared.GLOBAL_PROXIES else None
 
             # Crea una sessione dedicata con il proxy configurato
             if proxy:
@@ -617,3 +621,199 @@ class HLSProxyPagesMixin:
         except Exception as e:
             logger.error(f"❌ Error fetching IP: {e}")
             return web.Response(text=str(e), status=500)
+
+    async def handle_admin(self, request):
+        if not check_password(request):
+            raise web.HTTPFound('/admin/login')
+        try:
+            html = self._read_template("admin.html")
+            html = html.replace("{{APP_VERSION}}", APP_VERSION)
+            return web.Response(text=html, content_type="text/html")
+        except Exception as e:
+            logger.error(f"Error loading admin page: {e}")
+            return web.Response(text="Admin page error", status=500)
+
+    async def handle_admin_login(self, request):
+        if check_password(request):
+            raise web.HTTPFound('/admin')
+        html = self._read_template("admin_login.html")
+        return web.Response(text=html, content_type="text/html")
+
+    async def handle_admin_api_login(self, request):
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"error": "Invalid JSON"}, status=400)
+        password = data.get("password", "")
+        if API_PASSWORD and password != API_PASSWORD:
+            return web.json_response({"error": "Invalid password"}, status=401)
+        resp = web.json_response({"ok": True})
+        resp.set_cookie("admin_token", API_PASSWORD, httponly=True, samesite="lax", max_age=86400 * 30, path="/")
+        return resp
+
+    async def handle_admin_logout(self, request):
+        resp = web.HTTPFound('/admin/login')
+        resp.del_cookie("admin_token", path="/")
+        raise resp
+
+    async def handle_admin_api_get(self, request):
+        if not check_password(request):
+            return web.Response(status=401, text="Unauthorized")
+        config = config_store.get_all()
+        config["api_password_configured"] = bool(API_PASSWORD)
+        config["app_version"] = APP_VERSION
+        config["version_mode"] = VERSION_MODE
+        config["warp_status"] = await self.get_warp_status()
+        config["warp_ip"] = getattr(self, '_warp_ip', '')
+        config["available_extractors"] = self._get_available_extractors()
+        return web.json_response(config)
+
+    def _get_available_extractors(self):
+        import extractors.registry as _reg
+        names = []
+        suffix = "Extractor"
+        for attr_name in dir(_reg):
+            if attr_name.endswith(suffix) and attr_name != "ExtractorError":
+                cls = getattr(_reg, attr_name, None)
+                if cls is not None:
+                    short = attr_name[:-len(suffix)].lower()
+                    names.append(short)
+        return sorted(names)
+
+    async def handle_admin_api_update(self, request):
+        if not check_password(request):
+            return web.Response(status=401, text="Unauthorized")
+        try:
+            data = await request.json()
+        except Exception:
+            return web.Response(status=400, text="Invalid JSON body")
+
+        allowed_keys = {
+            "enable_warp", "warp_license_key",
+            "global_proxies", "transport_routes", "extractor_proxies",
+            "warp_off_extractors", "warp_exclude_domains_custom",
+            "mpd_mode", "dvr_enabled",
+            "max_recording_duration", "recordings_retention_days",
+            "enable_remuxing",
+            "proxy_test_timeout", "proxy_test_concurrency", "segment_cache_ttl",
+            "log_level",
+        }
+
+        updates = {}
+        for key, value in data.items():
+            if key in allowed_keys:
+                updates[key] = value
+
+        if updates:
+            config_store.update(updates)
+            reload_config()
+            clear_proxy_affinity()
+            # Invalidate extractor cache if proxy-related settings changed
+            if any(k in updates for k in ("global_proxies", "extractor_proxies", "transport_routes")):
+                self.extractors.clear()
+                logger.info("Extractor cache cleared due to config change")
+
+        return web.json_response({"status": "ok", "updated": list(updates.keys())})
+
+    async def handle_admin_api_warp_toggle(self, request):
+        if not check_password(request):
+            return web.Response(status=401, text="Unauthorized")
+        try:
+            data = await request.json()
+        except Exception:
+            return web.Response(status=400, text="Invalid JSON body")
+
+        enable = data.get("enable", False)
+        config_store.set("enable_warp", bool(enable))
+        reload_config()
+        clear_proxy_affinity()
+        self.extractors.clear()
+
+        if enable:
+            logger.info("WARP enabled via admin panel")
+            result = await self.reconnect_warp()
+            if result.get("status") != "ok":
+                logger.warning(f"WARP enable failed: {result.get('message')}")
+                self._warp_check_ts = 0
+                return web.json_response({"status": "error", "message": result.get("message", "WARP connect failed")}, status=500)
+        else:
+            logger.info("WARP disabled via admin panel")
+            await self._stop_warp_proxy()
+
+        self._warp_check_ts = 0  # Force refresh on next status check
+
+        return web.json_response({"status": "ok", "warp": "enabled" if enable else "disabled"})
+
+    async def handle_admin_api_warp_reconnect(self, request):
+        if not check_password(request):
+            return web.Response(status=401, text="Unauthorized")
+        result = await self.reconnect_warp()
+        status_code = 200 if result.get("status") == "ok" else 500
+        return web.json_response(result, status=status_code)
+
+    async def handle_admin_api_extractor_proxy(self, request):
+        if not check_password(request):
+            return web.Response(status=401, text="Unauthorized")
+        try:
+            data = await request.json()
+        except Exception:
+            return web.Response(status=400, text="Invalid JSON body")
+
+        extractor = data.get("extractor")
+        proxy = data.get("proxy", "")
+        ptype = data.get("type", "proxy")
+
+        if not extractor:
+            return web.Response(status=400, text="Missing 'extractor' field")
+
+        extractor_proxies = config_store.get("extractor_proxies", {})
+        if proxy:
+            if ptype == "file":
+                extractor_proxies[extractor.lower()] = {"file": proxy}
+            else:
+                extractor_proxies[extractor.lower()] = proxy
+        else:
+            extractor_proxies.pop(extractor.lower(), None)
+
+        config_store.set("extractor_proxies", extractor_proxies)
+        reload_config()
+        clear_proxy_affinity()
+        self.extractors.clear()
+
+        return web.json_response({"status": "ok", "extractor": extractor, "proxy": proxy or None})
+
+    async def handle_admin_api_download(self, request):
+        if not check_password(request):
+            return web.Response(status=401, text="Unauthorized")
+        data = config_store.get_all()
+        json_str = json.dumps(data, indent=2)
+        return web.Response(
+            body=json_str,
+            content_type="application/json",
+            headers={
+                "Content-Disposition": 'attachment; filename="easyproxy_config.json"'
+            }
+        )
+
+    async def handle_admin_api_upload(self, request):
+        if not check_password(request):
+            return web.Response(status=401, text="Unauthorized")
+        try:
+            reader = await request.multipart()
+            field = await reader.next()
+            if not field or field.name != "config":
+                return web.Response(status=400, text="Missing 'config' file field")
+            raw = await field.read()
+            data = json.loads(raw)
+            if not isinstance(data, dict):
+                return web.Response(status=400, text="Config must be a JSON object")
+            config_store.replace_all(data)
+            reload_config()
+            clear_proxy_affinity()
+            self.extractors.clear()
+            return web.json_response({"status": "ok", "message": "Config imported successfully"})
+        except json.JSONDecodeError:
+            return web.Response(status=400, text="Invalid JSON file")
+        except Exception as e:
+            logger.error(f"Config upload failed: {e}")
+            return web.Response(status=500, text=f"Upload failed: {e}")

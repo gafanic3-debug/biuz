@@ -20,11 +20,10 @@ import aiohttp
 from aiohttp import ClientSession, ClientTimeout, TCPConnector
 
 from config import (
-    GLOBAL_PROXIES,
-    TRANSPORT_ROUTES,
     get_connector_for_proxy,
     get_proxy_for_url,
 )
+import config as _cfg
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +44,7 @@ class AdnExtractor:
 
     def __init__(self, request_headers: dict, proxies: list = None):
         self.request_headers = request_headers or {}
-        self.proxies = proxies or GLOBAL_PROXIES
+        self.proxies = proxies or _cfg.GLOBAL_PROXIES
         self.session: Optional[ClientSession] = None
 
     def _get_random_proxy(self):
@@ -55,7 +54,7 @@ class AdnExtractor:
         if self.session is None or self.session.closed:
             timeout = ClientTimeout(total=30, connect=15, sock_read=20)
             proxy = get_proxy_for_url(
-                self.BASE_URL, TRANSPORT_ROUTES, self.proxies, bypass_warp=True
+                self.BASE_URL, global_proxies=self.proxies, bypass_warp=True
             )
             if proxy:
                 logger.debug("ADN routing: PROXY (%s)", proxy)

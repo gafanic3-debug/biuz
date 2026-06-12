@@ -1,0 +1,920 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin &mdash; EasyProxy</title>
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #09090f;
+            --bg-secondary: #111119;
+            --bg-tertiary: #1a1a28;
+            --surface: rgba(255, 255, 255, 0.03);
+            --surface-glass: rgba(255, 255, 255, 0.06);
+            --surface-elevated: rgba(255, 255, 255, 0.1);
+            --primary-gradient: linear-gradient(135deg, #6366f1 0%, #a855f7 50%, #ec4899 100%);
+            --secondary-gradient: linear-gradient(135deg, #06b6d4 0%, #3b82f6 100%);
+            --accent-gradient: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            --neon-gradient: linear-gradient(90deg, #06b6d4, #a855f7, #ec4899, #a855f7, #06b6d4);
+            --accent-primary: #6366f1;
+            --accent-secondary: #a855f7;
+            --accent-success: #10b981;
+            --accent-warning: #f59e0b;
+            --accent-error: #ef4444;
+            --accent-info: #06b6d4;
+            --neon-green: #39ff14;
+            --text-primary: #ffffff;
+            --text-secondary: #a1a1aa;
+            --text-muted: #6b6b80;
+            --text-accent: #e4e4e7;
+            --border-primary: rgba(255, 255, 255, 0.08);
+            --border-accent: rgba(255, 255, 255, 0.15);
+            --glow-primary: 0 0 30px rgba(99, 102, 241, 0.25);
+            --glow-secondary: 0 0 40px rgba(168, 85, 247, 0.3);
+            --glow-success: 0 0 30px rgba(16, 185, 129, 0.25);
+            --shadow-dark: 0 25px 60px -15px rgba(0, 0, 0, 0.8);
+            --transition-fast: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+            --transition-normal: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            --border-radius: 16px;
+            --border-radius-large: 24px;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+        #particles-canvas {
+            position: fixed; top: 0; left: 0;
+            width: 100%; height: 100%;
+            z-index: 0; pointer-events: none;
+        }
+        .bg-glow {
+            position: fixed; top: -40%; left: -20%;
+            width: 140%; height: 140%;
+            background:
+                radial-gradient(ellipse at 20% 50%, rgba(99,102,241,0.12) 0%, transparent 50%),
+                radial-gradient(ellipse at 80% 20%, rgba(168,85,247,0.1) 0%, transparent 50%),
+                radial-gradient(ellipse at 50% 80%, rgba(6,182,212,0.08) 0%, transparent 50%);
+            animation: bgFloat 30s ease-in-out infinite;
+            z-index: 0; pointer-events: none;
+        }
+        @keyframes bgFloat {
+            0%, 100% { transform: translateY(0) scale(1); }
+            33% { transform: translateY(-20px) scale(1.02); }
+            66% { transform: translateY(20px) scale(0.98); }
+        }
+        .container {
+            max-width: 1000px; margin: 0 auto;
+            padding: 2rem 1.5rem;
+            position: relative; z-index: 1;
+        }
+        .page-header {
+            text-align: center; margin-bottom: 3rem; padding-top: 2rem;
+        }
+        .hero-badge {
+            display: inline-flex; align-items: center; gap: 8px;
+            background: var(--surface-glass); border: 1px solid var(--border-primary);
+            border-radius: 50px; padding: 6px 16px 6px 8px;
+            backdrop-filter: blur(20px); margin-bottom: 1.5rem;
+            font-size: 0.8rem; color: var(--text-secondary);
+        }
+        .hero-badge-dot {
+            width: 8px; height: 8px; background: var(--accent-primary);
+            border-radius: 50%; box-shadow: 0 0 12px var(--accent-primary);
+            animation: dotPulse 2s ease-in-out infinite;
+        }
+        @keyframes dotPulse {
+            0%, 100% { box-shadow: 0 0 8px var(--accent-primary); }
+            50% { box-shadow: 0 0 20px var(--accent-primary), 0 0 30px var(--accent-primary); }
+        }
+        h1 {
+            font-size: clamp(2rem, 5vw, 3.5rem); font-weight: 900;
+            letter-spacing: -0.03em; line-height: 1.1; margin-bottom: 0.5rem;
+            background: var(--neon-gradient); background-size: 300% 300%;
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+            background-clip: text; animation: gradientShift 4s ease-in-out infinite;
+        }
+        @keyframes gradientShift {
+            0%, 100% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+        }
+        .subtitle { color: var(--text-secondary); font-size: 0.95rem; font-weight: 400; }
+        .card {
+            background: var(--surface-glass); border: 1px solid var(--border-primary);
+            border-radius: var(--border-radius-large); padding: 1.75rem;
+            backdrop-filter: blur(20px); margin-bottom: 1.25rem;
+            transition: var(--transition-normal); position: relative; overflow: hidden;
+        }
+        .card-wide { grid-column: 1 / -1; }
+        .card::after {
+            content: ''; position: absolute; top: 0; left: 0;
+            width: 100%; height: 2px;
+            background: var(--primary-gradient);
+            transform: scaleX(0); transition: var(--transition-normal);
+            transform-origin: left;
+        }
+        .card:hover {
+            border-color: var(--border-accent);
+            box-shadow: var(--glow-primary), var(--shadow-dark);
+            background: var(--surface-elevated);
+        }
+        .card:hover::after { transform: scaleX(1); }
+        .card h2 {
+            font-size: 1rem; font-weight: 700; margin-bottom: 1.25rem;
+            display: flex; align-items: center; gap: 8px;
+        }
+        .card h2 .icon {
+            width: 32px; height: 32px; border-radius: 10px;
+            display: inline-flex; align-items: center; justify-content: center;
+            background: var(--surface-elevated); font-size: 1rem;
+        }
+        .row { display: flex; align-items: center; gap: 12px; margin-bottom: 0.75rem; flex-wrap: wrap; }
+        label { min-width: 140px; font-size: 0.85rem; color: var(--text-secondary); font-weight: 500; }
+        input[type="text"], input[type="number"], select, textarea {
+            flex: 1; min-width: 200px; padding: 10px 14px; border-radius: 10px;
+            border: 1px solid var(--border-primary); background: var(--bg-tertiary);
+            color: var(--text-primary); font-size: 0.85rem; font-family: 'Inter', sans-serif;
+            transition: var(--transition-fast); outline: none;
+        }
+        textarea { font-family: 'JetBrains Mono', 'Fira Code', monospace; min-height: 70px; resize: vertical; }
+        input:focus, select:focus, textarea:focus {
+            border-color: var(--accent-primary); box-shadow: 0 0 0 3px rgba(99,102,241,0.15);
+        }
+        .toggle {
+            position: relative; width: 48px; height: 26px; cursor: pointer;
+            background: rgba(255,255,255,0.1); border-radius: 13px;
+            transition: 0.25s; flex-shrink: 0;
+        }
+        .toggle.active { background: var(--accent-primary); box-shadow: var(--glow-primary); }
+        .toggle::after {
+            content: ''; position: absolute; top: 3px; left: 3px;
+            width: 20px; height: 20px; background: #fff; border-radius: 50%;
+            transition: 0.25s; box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        }
+        .toggle.active::after { left: 25px; }
+        .badge {
+            display: inline-block; padding: 3px 10px; border-radius: 6px;
+            font-size: 0.7rem; font-weight: 700; text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+        .badge-on { background: rgba(16,185,129,0.15); color: var(--accent-success); }
+        .badge-off { background: rgba(239,68,68,0.15); color: var(--accent-error); }
+        .badge-warp { background: rgba(59,130,246,0.15); color: #3b82f6; }
+        .status { margin: 0.5rem 0 0.75rem; font-size: 0.8rem; color: var(--text-muted); }
+        .status.connected { color: var(--accent-success); }
+        .status.disconnected { color: var(--accent-error); }
+        .help-text { font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.75rem; line-height: 1.5; }
+        .btn {
+            padding: 10px 22px; border-radius: 10px; border: none;
+            font-size: 0.85rem; cursor: pointer; font-weight: 600;
+            transition: var(--transition-normal); font-family: 'Inter', sans-serif;
+            display: inline-flex; align-items: center; gap: 6px;
+        }
+        .btn-primary {
+            background: var(--primary-gradient); color: #fff;
+            box-shadow: var(--glow-primary);
+        }
+        .btn-primary:hover { transform: translateY(-2px); box-shadow: var(--glow-secondary); }
+        .btn-danger { background: var(--accent-error); color: #fff; }
+        .btn-danger:hover { transform: translateY(-2px); box-shadow: 0 0 20px rgba(239,68,68,0.3); }
+        .btn-sm { padding: 6px 14px; font-size: 0.75rem; }
+        .extractor-row {
+            display: flex; gap: 8px; align-items: center;
+            padding: 8px 12px; margin-bottom: 4px;
+            background: var(--bg-secondary); border-radius: 10px;
+            border: 1px solid var(--border-primary);
+        }
+        .extractor-row .name {
+            min-width: 100px; font-size: 0.85rem; font-weight: 600;
+            color: var(--text-primary);
+        }
+        .extractor-row input {
+            flex: 1; min-width: 100px;
+            background: var(--bg-tertiary) !important;
+            color: var(--text-primary) !important;
+        }
+        select#new-extractor-name {
+            background: var(--bg-tertiary) !important;
+            color: var(--text-primary) !important;
+        }
+        .warp-off-chip {
+            display: inline-flex; align-items: center; gap: 4px;
+            padding: 4px 12px; border-radius: 8px; font-size: 0.75rem;
+            font-weight: 600; cursor: pointer; user-select: none;
+            transition: var(--transition-fast);
+            background: rgba(99,102,241,0.15); border: 1px solid rgba(99,102,241,0.3);
+            color: var(--accent-primary);
+        }
+        .warp-off-chip:hover { border-color: var(--accent-primary); box-shadow: var(--glow-primary); }
+        .warp-off-chip.off {
+            background: var(--surface); border-color: var(--border-primary);
+            color: var(--text-muted);
+        }
+        .toast {
+            position: fixed; bottom: 24px; right: 24px;
+            padding: 14px 24px; border-radius: 12px;
+            font-size: 0.85rem; font-weight: 500; z-index: 1000;
+            transform: translateY(100px); opacity: 0;
+            transition: 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.1);
+        }
+        .toast.show { transform: translateY(0); opacity: 1; }
+        .toast-success { background: rgba(16,185,129,0.9); color: #fff; }
+        .toast-error { background: rgba(239,68,68,0.9); color: #fff; }
+        .toast-info { background: rgba(99,102,241,0.9); color: #fff; }
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; }
+        @media (max-width: 700px) {
+            .grid-2 { grid-template-columns: 1fr; }
+            .row { flex-direction: column; align-items: stretch; }
+            label { min-width: auto; }
+            .container { padding: 1rem; }
+        }
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: var(--bg-secondary); }
+        ::-webkit-scrollbar-thumb { background: var(--surface-elevated); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--border-accent); }
+        .add-row { display: flex; gap: 8px; margin-top: 0.75rem; flex-wrap: wrap; }
+        .add-row input { flex: 1; min-width: 120px; }
+        .version-chip {
+            display: inline-flex; align-items: center; gap: 6px;
+            font-size: 0.75rem; color: var(--text-secondary);
+            background: var(--surface-glass); padding: 4px 14px;
+            border-radius: 20px; border: 1px solid var(--border-primary);
+            margin-top: 0.75rem;
+        }
+        .modal-overlay {
+            position: fixed; inset: 0; z-index: 999;
+            background: rgba(0,0,0,0.6); backdrop-filter: blur(4px);
+            display: none; align-items: center; justify-content: center;
+        }
+        .modal-overlay.show { display: flex; }
+        .modal-box {
+            background: var(--bg-secondary); border: 1px solid var(--border-primary);
+            border-radius: 16px; padding: 1.5rem; width: 90%; max-width: 500px;
+            max-height: 70vh; display: flex; flex-direction: column;
+        }
+        .modal-box h3 { margin-bottom: 1rem; font-size: 1.1rem; }
+        .modal-list { flex: 1; overflow-y: auto; margin-bottom: 1rem; }
+        .modal-list .item {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 6px 10px; margin-bottom: 4px;
+            background: var(--bg-tertiary); border-radius: 8px;
+            font-size: 0.8rem;
+        }
+        .modal-list .item .remove {
+            cursor: pointer; color: var(--accent-error); font-weight: 700;
+            padding: 2px 8px; border-radius: 4px;
+        }
+        .modal-list .item .remove:hover { background: rgba(239,68,68,0.15); }
+        .modal-add-row { display: flex; gap: 8px; }
+        .modal-add-row input { flex: 1; }
+        .add-form { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
+        .add-form input, .add-form select { flex: 1; min-width: 120px; }
+        .ll-item {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 6px 10px; margin-bottom: 4px;
+            background: var(--bg-tertiary); border-radius: 8px; font-size: 0.8rem;
+        }
+        .ll-item .ll-name { font-weight: 500; color: var(--text-primary); }
+        .ll-item .ll-level { color: var(--text-secondary); padding: 0 8px; }
+        .ll-item .ll-remove {
+            cursor: pointer; color: var(--accent-error); font-weight: 700;
+            padding: 2px 8px; border-radius: 4px;
+        }
+        .ll-item .ll-remove:hover { background: rgba(239,68,68,0.15); }
+    </style>
+</head>
+<body>
+<canvas id="particles-canvas"></canvas>
+<div class="bg-glow"></div>
+
+<div class="container">
+    <div class="page-header">
+        <div class="hero-badge">
+            <div class="hero-badge-dot"></div>
+            <span>Administration Panel</span>
+        </div>
+        <h1>Settings</h1>
+        <p class="subtitle">Changes apply immediately &mdash; no restart required</p>
+        <div class="version-chip">v{{APP_VERSION}}</div>
+        <div style="margin-top: 1rem; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;">
+            <button class="btn btn-primary btn-sm" onclick="logout()">🚪 Logout</button>
+            <button class="btn btn-primary btn-sm" onclick="downloadConfig()">⬇ Download Config</button>
+            <label class="btn btn-primary btn-sm" style="cursor:pointer">
+                ⬆ Upload Config
+                <input type="file" id="upload-input" accept=".json" style="display:none" onchange="uploadConfig(event)">
+            </label>
+        </div>
+    </div>
+
+    <div id="toast" class="toast"></div>
+
+    <div class="grid-2">
+        <!-- WARP -->
+        <div class="card">
+            <h2><span class="icon">🌐</span> Cloudflare WARP <span id="warp-status" class="status" style="margin:0;font-size:0.75rem">Checking...</span> <span id="warp-ip" style="font-size:0.7rem;color:var(--text-muted);font-weight:400"></span></h2>
+            <div class="row">
+                <label>Enabled</label>
+                <div id="warp-toggle" class="toggle" onclick="toggleWarp()"></div>
+                <span id="warp-label" class="badge badge-off">OFF</span>
+                <button class="btn btn-primary btn-sm" style="margin-left:auto" onclick="reconnectWarp()">🔄 New IP</button>
+            </div>
+            <div class="row">
+                <label>License Key</label>
+                <input type="text" id="warp-license-key" placeholder="WARP+ license key (optional)" onchange="saveField('warp_license_key', this.value)">
+            </div>
+        </div>
+
+        <!-- Global Proxy -->
+        <div class="card">
+            <h2><span class="icon">🔁</span> Global Proxy Pool</h2>
+            <p class="help-text">Comma-separated proxy URLs for random rotation</p>
+            <div class="row">
+                <input type="text" id="global-proxy" placeholder="socks5://user:pass@host:1080, http://proxy:8080" onchange="saveField('global_proxies', this.value.split(',').map(s => s.trim()).filter(Boolean))">
+            </div>
+        </div>
+
+        <!-- Per-Extractor Proxies -->
+        <div class="card card-wide">
+            <h2><span class="icon">🎯</span> Per-Extractor Proxies</h2>
+            <p class="help-text">Assign a specific proxy to individual extractors (e.g. vavoo, vixsrc, mixdrop)</p>
+            <div id="extractor-proxies-list"></div>
+            <div class="add-row">
+                <select id="new-extractor-name">
+                    <option value="">— Select extractor —</option>
+                </select>
+                <input type="text" id="new-extractor-proxy" placeholder="Proxy URL">
+                <button class="btn btn-sm" id="extractor-proxy-toggle" style="background:var(--surface);border:1px solid var(--border-primary);color:var(--text-muted);cursor:pointer;white-space:nowrap" onclick="toggleExtractorProxyMode()">Proxy</button>
+                <button class="btn btn-primary btn-sm" onclick="addExtractorProxy()">+ Add</button>
+            </div>
+        </div>
+
+        <!-- WARP Off per Extractor -->
+        <div class="card card-wide">
+            <h2><span class="icon">🚫</span> WARP Off per Extractor</h2>
+            <p class="help-text">Toggle WARP off for specific extractors</p>
+            <div id="warp-off-list" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+        </div>
+
+        <!-- WARP Exclude Domains -->
+        <div class="card card-wide">
+            <h2><span class="icon">🚫</span> WARP Exclude Domains</h2>
+            <p class="help-text">Domains that bypass WARP. Add your custom domains here (default debrid domains are always excluded).</p>
+            <div id="exclude-domains-list"></div>
+            <div class="add-row" style="margin-top:12px">
+                <input type="text" id="new-exclude-domain" placeholder="e.g. example.com or *.example.com" onkeydown="if(event.key==='Enter')addExcludeDomain()">
+                <button class="btn btn-primary btn-sm" onclick="addExcludeDomain()">+ Add</button>
+            </div>
+        </div>
+
+        <!-- Transport Routes -->
+        <div class="card">
+            <h2><span class="icon">🗺️</span> Transport Routes</h2>
+            <p class="help-text">Route specific domains through a proxy or disable SSL</p>
+            <div id="transport-routes-list"></div>
+            <div class="add-row" style="margin-top:12px">
+                <input type="text" id="new-route-url" placeholder="Domain (e.g. example.com)">
+                <input type="text" id="new-route-proxy" placeholder="Proxy URL (optional)">
+                <span id="ssl-toggle" class="btn btn-sm" style="background:var(--surface);border:1px solid var(--border-primary);color:var(--text-muted);cursor:pointer;min-width:60px;text-align:center" onclick="toggleRouteSsl()">SSL ON</span>
+                <button class="btn btn-primary btn-sm" onclick="addTransportRoute()">+ Add</button>
+            </div>
+        </div>
+
+        <!-- MPD / DASH -->
+        <div class="card">
+            <h2><span class="icon">🎬</span> MPD &amp; DASH</h2>
+            <div class="row">
+                <label>MPD Mode</label>
+                <select id="mpd-mode" onchange="saveField('mpd_mode', this.value)">
+                    <option value="legacy">Legacy</option>
+                    <option value="ffmpeg">FFmpeg</option>
+                    <option value="none">None</option>
+                </select>
+            </div>
+            <div class="row">
+                <label>Remuxing</label>
+                <div id="remux-toggle" class="toggle" onclick="toggleRemux()"></div>
+                <span id="remux-label" class="badge badge-off">OFF</span>
+            </div>
+        </div>
+
+        <!-- DVR -->
+        <div class="card">
+            <h2><span class="icon">📹</span> DVR Recording</h2>
+            <div class="row">
+                <label>Enabled</label>
+                <div id="dvr-toggle" class="toggle" onclick="toggleDvr()"></div>
+                <span id="dvr-label" class="badge badge-off">OFF</span>
+            </div>
+            <div class="row">
+                <label>Max Duration</label>
+                <input type="number" id="dvr-max" value="28800" min="60" onchange="saveField('max_recording_duration', parseInt(this.value))">
+            </div>
+            <div class="row">
+                <label>Auto Delete After (days)</label>
+                <input type="number" id="dvr-retention" value="7" min="1" onchange="saveField('recordings_retention_days', parseInt(this.value))">
+            </div>
+        </div>
+
+        <!-- Advanced -->
+        <div class="card">
+            <h2><span class="icon">⚙️</span> Advanced</h2>
+            <div class="row">
+                <label>Proxy Test Timeout</label>
+                <input type="number" id="proxy-test-timeout" value="10" min="2" onchange="saveField('proxy_test_timeout', parseInt(this.value))">
+            </div>
+            <div class="row">
+                <label>Segment Cache TTL</label>
+                <input type="number" id="segment-cache-ttl" value="30" min="0" onchange="saveField('segment_cache_ttl', parseInt(this.value))">
+            </div>
+            <div class="row">
+                <label>Proxy Test Concurrency</label>
+                <input type="number" id="proxy-test-concurrency" value="30" min="0" onchange="saveField('proxy_test_concurrency', parseInt(this.value) || 0)">
+            </div>
+            <p class="help-text" style="margin-top:2px">0 = auto (calcolato in base ai core CPU)</p>
+            <div class="row">
+                <label>Log Level</label>
+                <select id="log-level" onchange="saveField('log_level', this.value)">
+                    <option value="DEBUG">DEBUG</option>
+                    <option value="INFO">INFO</option>
+                    <option value="WARNING">WARNING</option>
+                    <option value="ERROR">ERROR</option>
+                    <option value="CRITICAL">CRITICAL</option>
+                </select>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let config = {};
+let extractorProxies = {};
+let sslOff = false;
+let extractorProxyMode = 'proxy';
+
+function toast(msg, type='success') {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = 'toast toast-' + type + ' show';
+    setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+function setToggle(id, value) {
+    const el = document.getElementById(id);
+    const label = document.getElementById(id.replace('-toggle', '-label'));
+    el.classList.toggle('active', value);
+    if (label) {
+        label.textContent = value ? 'ON' : 'OFF';
+        label.className = 'badge ' + (value ? 'badge-on' : 'badge-off');
+    }
+}
+
+async function loadConfig() {
+    const params = new URLSearchParams(window.location.search);
+    const pw = params.get('api_password');
+    const url = '/api/admin/config' + (pw ? '?api_password=' + pw : '');
+    try {
+        const resp = await fetch(url);
+        if (!resp.ok) { toast('Failed to load config (check API password)', 'error'); return; }
+        config = await resp.json();
+        setToggle('warp-toggle', config.enable_warp);
+        const ws = document.getElementById('warp-status');
+        ws.textContent = 'Status: ' + (config.warp_status || 'Unknown');
+        ws.className = 'status ' + (config.warp_status === 'Connected' ? 'connected' : 'disconnected');
+        document.getElementById('warp-ip').textContent = config.warp_ip ? '(' + config.warp_ip + ')' : '';
+        document.getElementById('warp-license-key').value = config.warp_license_key || '';
+        document.getElementById('global-proxy').value = (config.global_proxies || []).join(', ');
+        renderTransportRoutes();
+        extractorProxies = config.extractor_proxies || {};
+        renderExtractorProxies();
+        populateExtractorSelect(config.available_extractors || []);
+        renderWarpOffToggles(config.available_extractors || [], config.warp_off_extractors || []);
+        renderExcludeDomains();
+        document.getElementById('mpd-mode').value = config.mpd_mode || 'legacy';
+        setToggle('remux-toggle', config.enable_remuxing !== false);
+        setToggle('dvr-toggle', config.dvr_enabled || false);
+        document.getElementById('dvr-max').value = config.max_recording_duration || 28800;
+        document.getElementById('dvr-retention').value = config.recordings_retention_days || 7;
+        document.getElementById('proxy-test-timeout').value = config.proxy_test_timeout || 10;
+        document.getElementById('segment-cache-ttl').value = config.segment_cache_ttl || 30;
+        document.getElementById('proxy-test-concurrency').value = (config.proxy_test_concurrency != null ? config.proxy_test_concurrency : 30);
+        document.getElementById('log-level').value = config.log_level || 'WARNING';
+    } catch(e) {
+        toast('Error loading config: ' + e.message, 'error');
+    }
+}
+
+function renderExtractorProxies() {
+    const container = document.getElementById('extractor-proxies-list');
+    container.innerHTML = '';
+    for (const [name, entry] of Object.entries(extractorProxies)) {
+        let isFile = false, value = '';
+        if (typeof entry === 'string') { value = entry; }
+        else if (Array.isArray(entry)) { value = entry[0] || ''; }
+        else if (entry && entry.file) { isFile = true; value = entry.file; }
+        const div = document.createElement('div');
+        div.className = 'extractor-row';
+        const modeLabel = isFile ? '<span style="font-size:0.7rem;color:var(--accent-primary);padding:2px 6px;border:1px solid var(--accent-primary);border-radius:4px;margin-right:4px">FILE</span>' : '';
+        div.innerHTML = `
+            <span class="name">${name}</span>
+            ${modeLabel}
+            <input type="text" value="${value}" onchange="updateExtractorProxy('${name}', this.value)">
+            <button class="btn btn-danger btn-sm" onclick="removeExtractorProxy('${name}')">✕</button>
+        `;
+        container.appendChild(div);
+    }
+}
+
+function populateExtractorSelect(availableExtractors) {
+    const sel = document.getElementById('new-extractor-name');
+    sel.innerHTML = '<option value="">— Select extractor —</option>';
+    for (const name of availableExtractors) {
+        if (!extractorProxies[name]) {
+            const opt = document.createElement('option');
+            opt.value = name;
+            opt.textContent = name;
+            sel.appendChild(opt);
+        }
+    }
+}
+
+function renderWarpOffToggles(available, warpOffList) {
+    const container = document.getElementById('warp-off-list');
+    container.innerHTML = '';
+    for (const name of available) {
+        const isOff = warpOffList.includes(name);
+        const btn = document.createElement('span');
+        btn.className = 'warp-off-chip' + (isOff ? ' off' : '');
+        btn.textContent = name + (isOff ? ' 🚫' : ' ✅');
+        btn.onclick = async () => {
+            let newList;
+            if (warpOffList.includes(name)) {
+                newList = warpOffList.filter(x => x !== name);
+            } else {
+                newList = [...warpOffList, name];
+            }
+            await saveField('warp_off_extractors', newList);
+            config.warp_off_extractors = newList;
+            renderWarpOffToggles(available, newList);
+        };
+        container.appendChild(btn);
+    }
+}
+
+function humanizeKey(key) {
+    const special = { warp: 'WARP', dvr: 'DVR', mpd: 'MPD', ttl: 'TTL', ssl: 'SSL', url: 'URL', api: 'API' };
+    return key.split('_').map(w => special[w] || w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+}
+
+async function saveField(key, value) {
+    const params = new URLSearchParams(window.location.search);
+    const pw = params.get('api_password');
+    const resp = await fetch('/api/admin/config' + (pw ? '?api_password=' + pw : ''), {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({[key]: value})
+    });
+    if (resp.ok) { config[key] = value; toast('✓ Saved: ' + humanizeKey(key)); }
+    else { toast('✗ Failed: ' + humanizeKey(key), 'error'); }
+}
+
+function toggleExtractorProxyMode() {
+    extractorProxyMode = extractorProxyMode === 'proxy' ? 'file' : 'proxy';
+    const btn = document.getElementById('extractor-proxy-toggle');
+    const input = document.getElementById('new-extractor-proxy');
+    if (extractorProxyMode === 'file') {
+        btn.textContent = 'FILE';
+        btn.style.background = 'rgba(99,102,241,0.2)';
+        btn.style.borderColor = 'rgba(99,102,241,0.5)';
+        btn.style.color = '#818cf8';
+        input.placeholder = 'File path or URL (one proxy per line)';
+    } else {
+        btn.textContent = 'Proxy';
+        btn.style.background = 'var(--surface)';
+        btn.style.borderColor = 'var(--border-primary)';
+        btn.style.color = 'var(--text-muted)';
+        input.placeholder = 'Proxy URL';
+    }
+}
+
+async function reconnectWarp() {
+    const params = new URLSearchParams(window.location.search);
+    const pw = params.get('api_password');
+    const btn = document.querySelector('#warp-status + .row .btn-primary');
+    if (btn) { btn.textContent = '⏳ Reconnecting...'; btn.disabled = true; }
+    try {
+        const resp = await fetch('/api/admin/warp/reconnect' + (pw ? '?api_password=' + pw : ''), {
+            method: 'POST'
+        });
+        const data = await resp.json();
+        if (data.status === 'ok') {
+            toast(data.message || 'WARP reconnected');
+            refreshWarpStatus();
+        } else {
+            toast(data.message || 'Reconnect failed', 'error');
+        }
+        if (btn) { btn.textContent = '🔄 New IP'; btn.disabled = false; }
+    } catch(e) {
+        toast('Reconnect error: ' + e.message, 'error');
+    }
+    if (btn) { btn.textContent = '🔄 Reconnect WARP (new IP)'; btn.disabled = false; }
+}
+
+function logout() {
+    window.location.href = '/admin/logout';
+}
+function downloadConfig() {
+    const params = new URLSearchParams(window.location.search);
+    const pw = params.get('api_password');
+    const a = document.createElement('a');
+    a.href = '/api/admin/config/download' + (pw ? '?api_password=' + pw : '');
+    a.download = 'easyproxy_config.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+}
+
+async function uploadConfig(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const params = new URLSearchParams(window.location.search);
+    const pw = params.get('api_password');
+    const formData = new FormData();
+    formData.append('config', file);
+    try {
+        const resp = await fetch('/api/admin/config/upload' + (pw ? '?api_password=' + pw : ''), {
+            method: 'POST', body: formData
+        });
+        if (resp.ok) {
+            toast('Config imported successfully — reloading...');
+            setTimeout(() => location.reload(), 800);
+        } else {
+            const err = await resp.text();
+            toast('Upload failed: ' + err, 'error');
+        }
+    } catch(e) {
+        toast('Upload error: ' + e.message, 'error');
+    }
+    event.target.value = '';
+}
+
+async function toggleWarp() {
+    const newVal = !config.enable_warp;
+    const params = new URLSearchParams(window.location.search);
+    const pw = params.get('api_password');
+    const resp = await fetch('/api/admin/warp/toggle' + (pw ? '?api_password=' + pw : ''), {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({enable: newVal})
+    });
+    if (resp.ok) {
+        config.enable_warp = newVal;
+        setToggle('warp-toggle', newVal);
+        toast('WARP ' + (newVal ? 'enabled' : 'disabled'));
+        refreshWarpStatus();
+    } else { toast('Failed to toggle WARP', 'error'); }
+}
+
+async function refreshWarpStatus() {
+    try {
+        const r = await fetch('/api/admin/config');
+        const data = await r.json();
+        config.warp_status = data.warp_status;
+        config.warp_ip = data.warp_ip || '';
+        const ws = document.getElementById('warp-status');
+        ws.textContent = 'Status: ' + (data.warp_status || 'Unknown');
+        ws.className = 'status ' + (data.warp_status === 'Connected' ? 'connected' : 'disconnected');
+        document.getElementById('warp-ip').textContent = data.warp_ip ? '(' + data.warp_ip + ')' : '';
+    } catch(e) { console.warn('Failed to refresh WARP status', e); }
+}
+
+function renderTransportRoutes() {
+    const routes = config.transport_routes || [];
+    const container = document.getElementById('transport-routes-list');
+    container.innerHTML = '';
+    for (let i = 0; i < routes.length; i++) {
+        const r = routes[i];
+        const div = document.createElement('div');
+        div.className = 'extractor-row';
+        div.innerHTML = `
+            <span class="name" title="${r.url}">${r.url}</span>
+            <span style="flex:1;font-size:0.8rem;color:var(--text-muted)">${r.proxy || 'Direct'}</span>
+            <span style="font-size:0.7rem;padding:2px 8px;border-radius:4px;background:${r.disable_ssl ? 'rgba(239,68,68,0.15)' : 'rgba(16,185,129,0.15)'};color:${r.disable_ssl ? 'var(--accent-error)' : 'var(--accent-success)'}">${r.disable_ssl ? 'SSL OFF' : 'SSL ON'}</span>
+            <button class="btn btn-danger btn-sm" onclick="removeTransportRoute(${i})">✕</button>
+        `;
+        container.appendChild(div);
+    }
+}
+
+function toggleRouteSsl() {
+    sslOff = !sslOff;
+    const btn = document.getElementById('ssl-toggle');
+    if (sslOff) {
+        btn.textContent = 'SSL OFF';
+        btn.style.background = 'rgba(239,68,68,0.2)';
+        btn.style.borderColor = 'rgba(239,68,68,0.5)';
+        btn.style.color = '#ef4444';
+    } else {
+        btn.textContent = 'SSL ON';
+        btn.style.background = 'var(--surface)';
+        btn.style.borderColor = 'var(--border-primary)';
+        btn.style.color = 'var(--text-muted)';
+    }
+}
+
+function addTransportRoute() {
+    const url = document.getElementById('new-route-url').value.trim();
+    const proxy = document.getElementById('new-route-proxy').value.trim();
+    const disableSsl = sslOff;
+    if (!url) { toast('Enter a domain', 'error'); return; }
+    const routes = config.transport_routes || [];
+    routes.push({url, proxy: proxy || null, disable_ssl: disableSsl});
+    saveField('transport_routes', routes);
+    config.transport_routes = routes;
+    renderTransportRoutes();
+    document.getElementById('new-route-url').value = '';
+    document.getElementById('new-route-proxy').value = '';
+    sslOff = false;
+    const btn = document.getElementById('ssl-toggle');
+    btn.textContent = 'SSL ON';
+    btn.style.background = 'var(--surface)';
+    btn.style.borderColor = 'var(--border-primary)';
+    btn.style.color = 'var(--text-muted)';
+    toast('Route added');
+}
+
+function removeTransportRoute(index) {
+    const routes = config.transport_routes || [];
+    routes.splice(index, 1);
+    saveField('transport_routes', routes);
+    config.transport_routes = routes;
+    renderTransportRoutes();
+    toast('Route removed');
+}
+
+async function addExtractorProxy() {
+    const sel = document.getElementById('new-extractor-name');
+    const name = sel.value;
+    const value = document.getElementById('new-extractor-proxy').value.trim();
+    if (!name || !value) { toast('Select an extractor and enter a value', 'error'); return; }
+    const params = new URLSearchParams(window.location.search);
+    const pw = params.get('api_password');
+    const resp = await fetch('/api/admin/extractor/proxy' + (pw ? '?api_password=' + pw : ''), {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({extractor: name, proxy: value, type: extractorProxyMode})
+    });
+    if (resp.ok) {
+        extractorProxies[name] = extractorProxyMode === 'file' ? {file: value} : value;
+        renderExtractorProxies();
+        populateExtractorSelect(config.available_extractors || []);
+        document.getElementById('new-extractor-name').value = '';
+        document.getElementById('new-extractor-proxy').value = '';
+        toast('Added proxy for ' + name);
+    } else { toast('Failed to add proxy', 'error'); }
+}
+
+async function updateExtractorProxy(name, value) {
+    const entry = extractorProxies[name];
+    const isFile = entry && entry.file;
+    const type = isFile ? 'file' : 'proxy';
+    const params = new URLSearchParams(window.location.search);
+    const pw = params.get('api_password');
+    const resp = await fetch('/api/admin/extractor/proxy' + (pw ? '?api_password=' + pw : ''), {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({extractor: name, proxy: value, type: type})
+    });
+    if (resp.ok) toast('Updated proxy for ' + name);
+    else toast('Failed to update', 'error');
+}
+
+async function removeExtractorProxy(name) {
+    const params = new URLSearchParams(window.location.search);
+    const pw = params.get('api_password');
+    const resp = await fetch('/api/admin/extractor/proxy' + (pw ? '?api_password=' + pw : ''), {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({extractor: name, proxy: ''})
+    });
+    if (resp.ok) {
+        delete extractorProxies[name];
+        renderExtractorProxies();
+        populateExtractorSelect(config.available_extractors || []);
+        toast('Removed proxy for ' + name);
+    } else { toast('Failed to remove', 'error'); }
+}
+
+async function toggleRemux() {
+    const newVal = !config.enable_remuxing;
+    await saveField('enable_remuxing', newVal);
+    setToggle('remux-toggle', newVal);
+}
+
+async function toggleDvr() {
+    const newVal = !config.dvr_enabled;
+    await saveField('dvr_enabled', newVal);
+    setToggle('dvr-toggle', newVal);
+}
+
+// Particles
+const canvas = document.getElementById('particles-canvas');
+const ctx = canvas.getContext('2d');
+let particles = [];
+function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+resize();
+window.addEventListener('resize', resize);
+class Particle {
+    constructor() { this.reset(); }
+    reset() {
+        this.x = Math.random() * canvas.width;
+        this.y = Math.random() * canvas.height;
+        this.vx = (Math.random() - 0.5) * 0.4;
+        this.vy = (Math.random() - 0.5) * 0.4;
+        this.size = Math.random() * 2 + 0.5;
+        this.alpha = Math.random() * 0.4 + 0.1;
+        this.pulse = Math.random() * Math.PI * 2;
+        this.pulseSpeed = Math.random() * 0.02 + 0.005;
+    }
+    update() {
+        this.x += this.vx; this.y += this.vy;
+        this.pulse += this.pulseSpeed;
+        if (this.x < 0 || this.x > canvas.width) this.vx *= -1;
+        if (this.y < 0 || this.y > canvas.height) this.vy *= -1;
+    }
+    draw() {
+        const a = this.alpha * (0.6 + 0.4 * Math.sin(this.pulse));
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(168, 85, 247, ${a})`;
+        ctx.fill();
+    }
+}
+for (let i = 0; i < 100; i++) particles.push(new Particle());
+function animate() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    for (const p of particles) { p.update(); p.draw(); }
+    for (let i = 0; i < particles.length; i++) {
+        for (let j = i + 1; j < particles.length; j++) {
+            const dx = particles[i].x - particles[j].x;
+            const dy = particles[i].y - particles[j].y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist < 150) {
+                ctx.beginPath();
+                ctx.moveTo(particles[i].x, particles[i].y);
+                ctx.lineTo(particles[j].x, particles[j].y);
+                ctx.strokeStyle = `rgba(99, 102, 241, ${0.1 * (1 - dist / 150)})`;
+                ctx.lineWidth = 0.5;
+                ctx.stroke();
+            }
+        }
+    }
+    requestAnimationFrame(animate);
+}
+animate();
+</script>
+
+<script>
+function renderExcludeDomains() {
+    const custom = config.warp_exclude_domains_custom || [];
+    const container = document.getElementById('exclude-domains-list');
+    container.innerHTML = '';
+    if (custom.length === 0) {
+        container.innerHTML = '<div style="color:var(--text-muted);font-size:0.8rem;padding:8px">No custom domains added</div>';
+        return;
+    }
+    for (const domain of custom) {
+        const div = document.createElement('div');
+        div.className = 'extractor-row';
+        div.innerHTML = `<span>${domain}</span><button class="btn btn-danger btn-sm" onclick="removeExcludeDomain('${domain}')">✕</button>`;
+        container.appendChild(div);
+    }
+}
+
+async function addExcludeDomain() {
+    const input = document.getElementById('new-exclude-domain');
+    const val = input.value.trim();
+    if (!val) return;
+    const custom = [...(config.warp_exclude_domains_custom || [])];
+    if (!custom.includes(val)) {
+        custom.push(val);
+        await saveField('warp_exclude_domains_custom', custom);
+        config.warp_exclude_domains_custom = custom;
+        renderExcludeDomains();
+    }
+    input.value = '';
+    input.focus();
+}
+
+async function removeExcludeDomain(domain) {
+    let custom = [...(config.warp_exclude_domains_custom || [])];
+    custom = custom.filter(d => d !== domain);
+    await saveField('warp_exclude_domains_custom', custom);
+    config.warp_exclude_domains_custom = custom;
+    renderExcludeDomains();
+}
+
+loadConfig();
+</script>
+</body>
+</html>

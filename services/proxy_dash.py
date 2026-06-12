@@ -3,14 +3,12 @@ import time
 import aiohttp
 from urllib.parse import urljoin
 from config import STRICT_PROXY_CONTEXT, should_allow_direct_fallback
+import services.proxy_shared as _shared
 from services.proxy_shared import (
     logger,
     web,
     check_password,
     get_ssl_setting_for_url,
-    TRANSPORT_ROUTES,
-    GLOBAL_PROXIES,
-    ENABLE_WARP,
     get_proxy_for_url,
     mark_proxy_dead,
     decrypt_segment,
@@ -190,16 +188,19 @@ class HLSProxyDashMixin:
                     key_url, bypass_warp=bypass_warp, forced_proxy=forced_proxy
                 )
                 # ✅ LOG CRITICO: Deve essere info per apparire nei log standard
+                _GLOBAL_PROXIES = _shared.GLOBAL_PROXIES
+                _ENABLE_WARP = _shared.ENABLE_WARP
+                _TRANSPORT_ROUTES = _shared.TRANSPORT_ROUTES
                 if proxy_used:
                     logger.info(f"🔐 [Key Proxy] Routing through: {proxy_used}")
                 elif (
                     forced_proxy
-                    or GLOBAL_PROXIES
-                    or (ENABLE_WARP and not bypass_warp)
+                    or _GLOBAL_PROXIES
+                    or (_ENABLE_WARP and not bypass_warp)
                     or any(
                         route.get("proxy")
                         and route.get("url", "").lower() in key_url.lower()
-                        for route in TRANSPORT_ROUTES
+                        for route in _TRANSPORT_ROUTES
                     )
                 ):
                     logger.warning(f"🔐 [Key Proxy] NO PROXY assigned for: {key_url}")
@@ -244,7 +245,7 @@ class HLSProxyDashMixin:
                     f"🔐 Auth key headers: Authorization={'***' if headers.get('Authorization') else 'missing'}, X-Channel-Key={headers.get('X-Channel-Key', 'missing')}, X-User-Agent={headers.get('X-User-Agent', 'missing')}"
                 )
 
-            disable_ssl = get_ssl_setting_for_url(key_url, TRANSPORT_ROUTES)
+            disable_ssl = get_ssl_setting_for_url(key_url, _TRANSPORT_ROUTES)
             try:
                 async with session.get(key_url, headers=headers, ssl=not disable_ssl, allow_redirects=False, timeout=15) as resp:
                     if resp.status == 200 or resp.status == 206:
@@ -279,7 +280,7 @@ class HLSProxyDashMixin:
                                 proxy_used,
                                 extractor_key=request.query.get("extractor_key"),
                             )
-                            new_proxy = get_proxy_for_url(key_url, TRANSPORT_ROUTES, GLOBAL_PROXIES, bypass_warp=bypass_warp)
+                            new_proxy = get_proxy_for_url(key_url, bypass_warp=bypass_warp)
                             if new_proxy and new_proxy != proxy_used:
                                 logger.info(f"🔐 Key fetch failed via proxy {proxy_used}, trying rotated proxy: {new_proxy}")
                                 try:
@@ -346,7 +347,7 @@ class HLSProxyDashMixin:
                         proxy_used,
                         extractor_key=request.query.get("extractor_key"),
                     )
-                    new_proxy = get_proxy_for_url(key_url, TRANSPORT_ROUTES, GLOBAL_PROXIES, bypass_warp=bypass_warp)
+                    new_proxy = get_proxy_for_url(key_url, bypass_warp=bypass_warp)
                     if new_proxy and new_proxy != proxy_used:
                         logger.info(f"🔐 Key fetch failed, trying rotated proxy: {new_proxy}")
                         try:

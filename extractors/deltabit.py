@@ -13,10 +13,10 @@ from config import (
     FLARESOLVERR_TIMEOUT, 
     get_solver_proxy_url, 
     build_proxy_with_auth,
-    GLOBAL_PROXIES,
     get_connector_for_proxy,
     get_preferred_proxy_for_url,
 )
+import config as _cfg
 from utils.cookie_cache import CookieCache
 from utils.solver_manager import solver_manager, ensure_flaresolverr
 
@@ -51,7 +51,7 @@ class DeltabitExtractor:
         self.base_headers = self.request_headers.copy()
         if "User-Agent" not in self.base_headers and "user-agent" not in self.base_headers:
              self.base_headers["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        self.proxies = proxies or GLOBAL_PROXIES
+        self.proxies = proxies or _cfg.GLOBAL_PROXIES
         self.cache = CookieCache("universal")
         self.mediaflow_endpoint = "proxy_stream_endpoint"
         self.bypass_warp_active = bypass_warp

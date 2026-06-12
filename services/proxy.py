@@ -35,7 +35,6 @@ class HLSProxy(
 
         # Cache per segmenti decriptati (URL -> (content, timestamp))
         self.segment_cache = {}
-        self.segment_cache_ttl = int(os.environ.get("SEGMENT_CACHE_TTL", "30"))
 
         # Prefetch queue for background downloading
         self.prefetch_tasks = set()
@@ -64,6 +63,7 @@ class HLSProxy(
         # Version information
         self.latest_version = "Checking..."
         self.warp_status = "Checking..."
+        self._warp_ip = ""
 
         # Registry for DASH native sessions (to handle segment proxying without HLS conversion)
         # session_id -> (base_url, headers, clearkey, timestamp)

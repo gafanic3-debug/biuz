@@ -8,7 +8,8 @@ from aiohttp import ClientSession, ClientTimeout, TCPConnector
 from aiohttp_socks import ProxyConnector
 from typing import Optional, Dict, Any
 from urllib.parse import quote_plus
-from config import GLOBAL_PROXIES, get_connector_for_proxy, get_preferred_proxy_for_url
+from config import get_connector_for_proxy, get_preferred_proxy_for_url
+import config as _cfg
 import random
 
 logger = logging.getLogger(__name__)
@@ -35,7 +36,7 @@ class VavooExtractor:
         }
         self.session = None
         self.mediaflow_endpoint = "proxy_stream_endpoint"
-        self.proxies = proxies or GLOBAL_PROXIES
+        self.proxies = proxies or _cfg.GLOBAL_PROXIES
         self._cached_sig = None
         self._cached_sig_ts = 0
         self._session_proxy = None

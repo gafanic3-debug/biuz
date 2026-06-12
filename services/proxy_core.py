@@ -1,6 +1,7 @@
 import asyncio
 import hmac
 import logging
+import os
 import re
 import time
 import urllib.parse
@@ -8,22 +9,18 @@ import aiohttp
 import base64
 import hashlib
 import socket
+import config_store
 from utils.solver_manager import try_shutdown_idle_flaresolverr
+import services.proxy_shared as _shared
 from services.proxy_shared import (
     logger,
     SELECTED_PROXY_CONTEXT,
     STRICT_PROXY_CONTEXT,
-    ENABLE_WARP,
-    WARP_PROXY_URL,
-    GLOBAL_PROXIES,
-    TRANSPORT_ROUTES,
     get_proxy_for_url,
     get_connector_for_proxy,
     get_extractor_proxies,
     mark_proxy_dead,
-    WARP_EXCLUDE_DOMAINS,
     BYPASSED_WARP_DOMAINS,
-    ProxyConnector,
     ClientSession,
     ClientTimeout,
     TCPConnector,
@@ -403,25 +400,127 @@ class HLSProxyCoreMixin:
             await try_shutdown_idle_flaresolverr()
 
     async def get_warp_status(self) -> str:
-        """Returns WARP status. If ENABLE_WARP=True, assumes Connected. Otherwise checks via WARP proxy."""
-        if ENABLE_WARP and WARP_PROXY_URL:
-            return "Connected"
+        """Returns WARP status and fetches real external IP through WARP proxy."""
         now = time.monotonic()
-        if now - getattr(self, '_warp_check_ts', 0) < 5:
+        if now - getattr(self, '_warp_check_ts', 0) < 30:
             return getattr(self, '_warp_cached', "Disconnected")
-        try:
-            connector = ProxyConnector.from_url(WARP_PROXY_URL) if WARP_PROXY_URL else TCPConnector()
-            async with ClientSession(connector=connector, timeout=ClientTimeout(total=5)) as session:
-                async with session.get("https://www.cloudflare.com/cdn-cgi/trace") as resp:
-                    if resp.status == 200:
-                        text = await resp.text()
-                        self._warp_cached = "Connected" if "warp=on" in text else "Disconnected"
-                    else:
-                        self._warp_cached = "Error"
-        except Exception:
-            self._warp_cached = "Disconnected"
+        _ENABLE_WARP = _shared.ENABLE_WARP
+        _WARP_PROXY_URL = _shared.WARP_PROXY_URL
+        result = "Disconnected"
+        if _ENABLE_WARP and _WARP_PROXY_URL:
+            # Quick socket test to 127.0.0.1:1080 (no DNS, always fast)
+            try:
+                reader, writer = await asyncio.wait_for(
+                    asyncio.open_connection("127.0.0.1", 1080), timeout=3
+                )
+                writer.close()
+                result = "Connected"
+                # Try to fetch the WARP IP via the proxy
+                try:
+                    connector = get_connector_for_proxy(
+                        _WARP_PROXY_URL, limit=0, family=socket.AF_INET
+                    )
+                    async with ClientSession(connector=connector, timeout=ClientTimeout(total=10)) as session:
+                        async with session.get("https://api.ipify.org?format=json") as resp:
+                            if resp.status == 200:
+                                data = await resp.json()
+                                self._warp_ip = data.get("ip", "")
+                except Exception:
+                    pass
+            except (OSError, asyncio.TimeoutError):
+                pass
+        self._warp_cached = result
         self._warp_check_ts = now
         return self._warp_cached
+
+    async def reconnect_warp(self) -> dict:
+        """Reconnect WARP to get a new IP. Tries warp-cli first, then wireproxy kill+restart."""
+        result = {"status": "ok", "message": ""}
+
+        if await _warp_cli_connect():
+            result["message"] = "WARP reconnected via warp-cli"
+            return result
+
+        # Fallback: wireproxy mode — kill, re-register, restart
+        warp_dir = os.environ.get("WARP_DIR", "/tmp/easyproxy-warp")
+        _kill_wireproxy()
+        await asyncio.sleep(1)
+
+        try:
+            # Remove old registration to force new IP
+            acct_file = os.path.join(warp_dir, "wgcf-account.toml")
+            if os.path.exists(acct_file):
+                os.remove(acct_file)
+
+            # Re-register and start wireproxy
+            proc = await asyncio.create_subprocess_exec(
+                "wgcf", "register", "--accept-tos",
+                cwd=warp_dir,
+                stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+            )
+            await asyncio.wait_for(proc.wait(), timeout=15)
+
+            license_key = _shared.WARP_LICENSE_KEY or config_store.get("warp_license_key", "")
+            if license_key:
+                proc = await asyncio.create_subprocess_exec(
+                    "wgcf", "update", "--license-key", license_key,
+                    cwd=warp_dir,
+                    stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+                )
+                await asyncio.wait_for(proc.wait(), timeout=10)
+
+            # Generate wireproxy config
+            profile = os.path.join(warp_dir, "wgcf-profile.conf")
+            if os.path.exists(profile):
+                os.remove(profile)
+            wp_conf = os.path.join(warp_dir, "wireproxy.conf")
+            if os.path.exists(wp_conf):
+                os.remove(wp_conf)
+
+            proc = await asyncio.create_subprocess_exec(
+                "wgcf", "generate",
+                cwd=warp_dir,
+                stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+            )
+            await asyncio.wait_for(proc.wait(), timeout=15)
+
+            # Build wireproxy.conf with SOCKS5 section
+            import shutil
+            shutil.copy(profile, wp_conf)
+            with open(wp_conf, "a") as f:
+                f.write("\n[Socks5]\nBindAddress = 127.0.0.1:1080\n")
+
+            # Start wireproxy
+            proc = await asyncio.create_subprocess_exec(
+                "wireproxy", "-c", wp_conf,
+                stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+            )
+            # Verify SOCKS5 is listening
+            import socket
+            for _ in range(10):
+                try:
+                    s = socket.create_connection(("127.0.0.1", 1080), timeout=2)
+                    s.close()
+                    result["message"] = "WARP reconnected via wireproxy (new IP)"
+                    return result
+                except (OSError, ConnectionRefusedError):
+                    await asyncio.sleep(1)
+            result["status"] = "error"
+            result["message"] = "wireproxy started but SOCKS5 not detected on 1080"
+        except Exception as e:
+            result["status"] = "error"
+            result["message"] = f"WARP reconnect failed: {e}"
+
+        return result
+
+    async def _stop_warp_proxy(self):
+        for cmd in [["warp-cli", "--accept-tos", "disconnect"]]:
+            try:
+                proc = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
+                await asyncio.wait_for(proc.wait(), timeout=5)
+            except Exception:
+                pass
+        _kill_wireproxy()
 
     async def _update_latest_version(self):
         """Periodically checks GitHub for the latest version in the background."""
@@ -577,7 +676,8 @@ class HLSProxyCoreMixin:
 
     async def _check_dynamic_warp_bypass(self, url: str):
         """Dynamically adds domain to WARP bypass if it matches known patterns."""
-        if not ENABLE_WARP:
+        _ENABLE_WARP = _shared.ENABLE_WARP
+        if not _ENABLE_WARP:
             return
 
         try:
@@ -605,10 +705,12 @@ class HLSProxyCoreMixin:
                     )
                     await proc2.wait()
 
-                    if base_domain not in WARP_EXCLUDE_DOMAINS:
-                        WARP_EXCLUDE_DOMAINS.append(base_domain)
-                    if domain not in WARP_EXCLUDE_DOMAINS:
-                        WARP_EXCLUDE_DOMAINS.append(domain)
+                    _WARP_EXCLUDE_DOMAINS = _shared.WARP_EXCLUDE_DOMAINS
+                    if isinstance(_WARP_EXCLUDE_DOMAINS, list):
+                        if base_domain not in _WARP_EXCLUDE_DOMAINS:
+                            _WARP_EXCLUDE_DOMAINS.append(base_domain)
+                        if domain not in _WARP_EXCLUDE_DOMAINS:
+                            _WARP_EXCLUDE_DOMAINS.append(domain)
 
                     BYPASSED_WARP_DOMAINS.add(domain)
                     BYPASSED_WARP_DOMAINS.add(base_domain)
@@ -632,7 +734,7 @@ class HLSProxyCoreMixin:
         if forced_proxy:
             forced_proxy = urllib.parse.unquote(forced_proxy)
 
-        proxy = forced_proxy or get_proxy_for_url(url, TRANSPORT_ROUTES, GLOBAL_PROXIES, bypass_warp=bypass_warp)
+        proxy = forced_proxy or get_proxy_for_url(url, bypass_warp=bypass_warp)
 
         prefer_default_family = prefer_default_family_for_url(url)
 
@@ -681,15 +783,18 @@ class HLSProxyCoreMixin:
 
     async def _retry_special_cdn_request(self, request_target, headers, disable_ssl: bool):
         """Retry a provider-protected CDN once via an alternate aiohttp route."""
+        _ENABLE_WARP = _shared.ENABLE_WARP
+        _WARP_PROXY_URL = _shared.WARP_PROXY_URL
+        _GLOBAL_PROXIES = _shared.GLOBAL_PROXIES
         retry_proxy = None
-        if ENABLE_WARP and WARP_PROXY_URL and "127.0.0.1" not in WARP_PROXY_URL:
-            retry_proxy = WARP_PROXY_URL
-        elif ENABLE_WARP and WARP_PROXY_URL:
+        if _ENABLE_WARP and _WARP_PROXY_URL and "127.0.0.1" not in _WARP_PROXY_URL:
+            retry_proxy = _WARP_PROXY_URL
+        elif _ENABLE_WARP and _WARP_PROXY_URL:
             from config import is_proxy_alive_async
-            if await is_proxy_alive_async(WARP_PROXY_URL):
-                retry_proxy = WARP_PROXY_URL
-        elif GLOBAL_PROXIES:
-            retry_proxy = GLOBAL_PROXIES[0]
+            if await is_proxy_alive_async(_WARP_PROXY_URL):
+                retry_proxy = _WARP_PROXY_URL
+        elif _GLOBAL_PROXIES:
+            retry_proxy = _GLOBAL_PROXIES[0]
 
         if not retry_proxy:
             return None
@@ -852,3 +957,65 @@ class HLSProxyCoreMixin:
             self.captured_hls_manifest_map.clear()
         except Exception as e:
             logger.error(f"Error during cleanup: {e}")
+
+async def _warp_cli_connect() -> bool:
+    """Standalone WARP warp-cli setup: disconnect, re-register, mode proxy, connect."""
+    import config_store, services.proxy_shared as _shared
+    try:
+        for cmd in [
+            ["warp-cli", "--accept-tos", "disconnect"],
+            ["warp-cli", "--accept-tos", "registration", "delete"],
+            ["warp-cli", "--accept-tos", "registration", "new"],
+        ]:
+            proc = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
+            rc = await asyncio.wait_for(proc.wait(), timeout=10)
+            if rc != 0:
+                return False
+        await asyncio.sleep(2)
+        license_key = _shared.WARP_LICENSE_KEY or config_store.get("warp_license_key", "")
+        if license_key:
+            proc = await asyncio.create_subprocess_exec(
+                "warp-cli", "--accept-tos", "registration", "license", license_key,
+                stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+            )
+            await asyncio.wait_for(proc.wait(), timeout=10)
+        for sub_cmd in [["mode", "proxy"], ["proxy", "port", "1080"]]:
+            proc = await asyncio.create_subprocess_exec(
+                "warp-cli", "--accept-tos", *sub_cmd,
+                stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+            )
+            await asyncio.wait_for(proc.wait(), timeout=5)
+        proc = await asyncio.create_subprocess_exec(
+            "warp-cli", "--accept-tos", "connect",
+            stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+        )
+        rc = await asyncio.wait_for(proc.wait(), timeout=15)
+        if rc != 0:
+            return False
+        # Verify SOCKS5 is actually listening
+        import socket
+        for _ in range(5):
+            try:
+                s = socket.create_connection(("127.0.0.1", 1080), timeout=2)
+                s.close()
+                return True
+            except (OSError, ConnectionRefusedError):
+                await asyncio.sleep(1)
+        return False
+    except (FileNotFoundError, asyncio.TimeoutError):
+        return False
+
+def _kill_wireproxy():
+    """Kill wireproxy by scanning /proc."""
+    try:
+        for entry in os.listdir("/proc"):
+            if not entry.isdigit():
+                continue
+            try:
+                with open(f"/proc/{entry}/comm") as f:
+                    if "wireproxy" in f.read():
+                        os.kill(int(entry), 9)
+            except (OSError, ProcessLookupError):
+                pass
+    except Exception:
+        pass

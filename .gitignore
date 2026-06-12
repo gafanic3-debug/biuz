@@ -7,3 +7,4 @@ byparr/
 /.shared_chromium_profile
 dlstreams_activity.txt
 /scripts
+config.json

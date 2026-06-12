@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>EasyProxy Admin</title>
+<style>
+    :root {
+        --bg-primary: #0a0a1a;
+        --bg-secondary: #12122a;
+        --bg-tertiary: #1a1a3e;
+        --surface-glass: rgba(255,255,255,0.03);
+        --border-primary: rgba(255,255,255,0.08);
+        --text-primary: #f0f0f8;
+        --text-secondary: #a0a0c0;
+        --text-muted: #6b6b8d;
+        --accent-primary: #6366f1;
+        --accent-glow: rgba(99,102,241,0.3);
+        --accent-error: #ef4444;
+    }
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body {
+        font-family: 'Inter', system-ui, -apple-system, sans-serif;
+        background: var(--bg-primary);
+        color: var(--text-primary);
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+    }
+    #particles {
+        position: fixed; inset: 0; z-index: 0;
+        pointer-events: none;
+    }
+    .login-card {
+        position: relative; z-index: 1;
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-primary);
+        border-radius: 20px;
+        padding: 2.5rem;
+        width: 90%;
+        max-width: 400px;
+        text-align: center;
+        backdrop-filter: blur(12px);
+    }
+    .login-card h1 {
+        font-size: 1.5rem;
+        font-weight: 700;
+        margin-bottom: 0.25rem;
+        background: linear-gradient(135deg, #6366f1, #a855f7);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+    }
+    .login-card p {
+        color: var(--text-muted);
+        font-size: 0.85rem;
+        margin-bottom: 1.5rem;
+    }
+    .login-card input {
+        width: 100%;
+        padding: 12px 16px;
+        border: 1px solid var(--border-primary);
+        border-radius: 12px;
+        background: var(--bg-tertiary);
+        color: var(--text-primary);
+        font-size: 1rem;
+        outline: none;
+        transition: border-color 0.2s;
+        margin-bottom: 1rem;
+    }
+    .login-card input:focus {
+        border-color: var(--accent-primary);
+        box-shadow: 0 0 0 3px var(--accent-glow);
+    }
+    .login-card button {
+        width: 100%;
+        padding: 12px;
+        border: none;
+        border-radius: 12px;
+        background: linear-gradient(135deg, #6366f1, #a855f7);
+        color: #fff;
+        font-size: 1rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: opacity 0.2s, transform 0.1s;
+    }
+    .login-card button:hover { opacity: 0.9; }
+    .login-card button:active { transform: scale(0.98); }
+    .login-card .error {
+        color: var(--accent-error);
+        font-size: 0.85rem;
+        margin-top: 0.75rem;
+        display: none;
+    }
+</style>
+</head>
+<body>
+<canvas id="particles"></canvas>
+<div class="login-card">
+    <h1>EasyProxy</h1>
+    <p>Inserisci la password per accedere</p>
+    <input type="password" id="password" placeholder="Password" autofocus onkeydown="if(event.key==='Enter')login()">
+    <button onclick="login()">Accedi</button>
+    <div id="error" class="error"></div>
+</div>
+<script>
+const canvas = document.getElementById('particles');
+const ctx = canvas.getContext('2d');
+let W, H;
+function resize() { W=canvas.width=innerWidth; H=canvas.height=innerHeight; }
+resize(); window.addEventListener('resize', resize);
+const particles = Array.from({length:50},()=>({x:Math.random()*W,y:Math.random()*H,vx:(Math.random()-0.5)*0.5,vy:(Math.random()-0.5)*0.5}));
+function animate() {
+    ctx.clearRect(0,0,W,H);
+    for (const p of particles) {
+        p.x+=p.vx; p.y+=p.vy;
+        if(p.x<0||p.x>W)p.vx*=-1;
+        if(p.y<0||p.y>H)p.vy*=-1;
+        ctx.beginPath(); ctx.arc(p.x,p.y,1.5,0,Math.PI*2);
+        ctx.fillStyle='rgba(99,102,241,0.3)'; ctx.fill();
+    }
+    for(let i=0;i<particles.length;i++)for(let j=i+1;j<particles.length;j++){
+        const dx=particles[i].x-particles[j].x, dy=particles[i].y-particles[j].y, dist=Math.sqrt(dx*dx+dy*dy);
+        if(dist<150){ctx.beginPath();ctx.moveTo(particles[i].x,particles[i].y);ctx.lineTo(particles[j].x,particles[j].y);ctx.strokeStyle=`rgba(99,102,241,${0.1*(1-dist/150)})`;ctx.lineWidth=0.5;ctx.stroke();}
+    }
+    requestAnimationFrame(animate);
+}
+animate();
+async function login() {
+    const pwd = document.getElementById('password').value;
+    const err = document.getElementById('error');
+    if (!pwd) { err.textContent='Inserisci la password'; err.style.display='block'; return; }
+    try {
+        const r = await fetch('/api/admin/login', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:pwd})});
+        if (!r.ok) { err.textContent='Password errata'; err.style.display='block'; return; }
+        window.location.href = '/admin';
+    } catch(e) { err.textContent='Errore di connessione'; err.style.display='block'; }
+}
+</script>
+</body>
+</html>

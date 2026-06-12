@@ -2,8 +2,10 @@ import json
 import logging
 import os
 from aiohttp import web
+import functools
 
 from config import check_password, APP_VERSION
+import config_store
 
 logger = logging.getLogger(__name__)
 
@@ -11,8 +13,18 @@ logger = logging.getLogger(__name__)
 def setup_recording_routes(app, recording_manager):
     """Setup all recording-related routes."""
 
+    def dvr_required(handler):
+        @functools.wraps(handler)
+        async def wrapper(*args, **kwargs):
+            if not config_store.get("dvr_enabled", False):
+                return web.json_response({"error": "DVR is disabled"}, status=404)
+            return await handler(*args, **kwargs)
+        return wrapper
+
     async def handle_recordings_page(request):
         """Serve the recordings UI page."""
+        if not check_password(request):
+            raise web.HTTPFound('/admin/login')
         template_path = os.path.join(
             os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
             'templates', 'recordings.html'
@@ -429,18 +441,18 @@ def setup_recording_routes(app, recording_manager):
         raise web.HTTPFound(stream_url)
 
     # Register routes
-    app.router.add_get('/recordings', handle_recordings_page)
-    app.router.add_get('/record', handle_record_via_get)  # GET endpoint for StreamVix
-    app.router.add_get('/record/stop/{id}', handle_stop_and_stream)  # Stop recording and stream
-    app.router.add_get('/api/recordings', handle_list_recordings)
-    app.router.add_get('/api/recordings/active', handle_active_recordings)
-    app.router.add_post('/api/recordings/start', handle_start_recording)
-    app.router.add_delete('/api/recordings/all', handle_delete_all_recordings)
-    app.router.add_get('/api/recordings/{id}', handle_get_recording)
-    app.router.add_post('/api/recordings/{id}/stop', handle_stop_recording)
-    app.router.add_delete('/api/recordings/{id}', handle_delete_recording)
-    app.router.add_get('/api/recordings/{id}/delete', handle_delete_recording_get)
-    app.router.add_get('/api/recordings/{id}/download', handle_download_recording)
-    app.router.add_get('/api/recordings/{id}/stream', handle_stream_recording)
+    app.router.add_get('/recordings', dvr_required(handle_recordings_page))
+    app.router.add_get('/record', dvr_required(handle_record_via_get))  # GET endpoint for StreamVix
+    app.router.add_get('/record/stop/{id}', dvr_required(handle_stop_and_stream))  # Stop recording and stream
+    app.router.add_get('/api/recordings', dvr_required(handle_list_recordings))
+    app.router.add_get('/api/recordings/active', dvr_required(handle_active_recordings))
+    app.router.add_post('/api/recordings/start', dvr_required(handle_start_recording))
+    app.router.add_delete('/api/recordings/all', dvr_required(handle_delete_all_recordings))
+    app.router.add_get('/api/recordings/{id}', dvr_required(handle_get_recording))
+    app.router.add_post('/api/recordings/{id}/stop', dvr_required(handle_stop_recording))
+    app.router.add_delete('/api/recordings/{id}', dvr_required(handle_delete_recording))
+    app.router.add_get('/api/recordings/{id}/delete', dvr_required(handle_delete_recording_get))
+    app.router.add_get('/api/recordings/{id}/download', dvr_required(handle_download_recording))
+    app.router.add_get('/api/recordings/{id}/stream', dvr_required(handle_stream_recording))
 
     logger.debug("Recording routes registered")

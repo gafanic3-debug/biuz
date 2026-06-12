@@ -17,10 +17,10 @@ except ImportError:
     BeautifulSoup = None
 
 from config import (
-    GLOBAL_PROXIES,
     get_connector_for_proxy,
     get_preferred_proxy_for_url,
 )
+import config as _cfg
 from extractors.shared_browser import close_shared_browser, get_shared_browser_context
 
 logger = logging.getLogger(__name__)
@@ -193,7 +193,7 @@ class DLStreamsExtractor:
         proxy_url = await get_preferred_proxy_for_url(
             target_url,
             "dlstreams",
-            self.proxies or GLOBAL_PROXIES,
+            self.proxies or _cfg.GLOBAL_PROXIES,
             self.bypass_warp_active,
         ) if target_url else None
         async with self._browser_launch_lock:

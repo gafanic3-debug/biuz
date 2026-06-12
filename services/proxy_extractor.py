@@ -8,6 +8,7 @@ from services.proxy_shared import (
     check_vavoo_request,
     ManifestRewriter,
 )
+import config_store
 from extractors.provider_hooks import requires_captured_manifest_proxy
 from config import FLARESOLVERR_URL
 import asyncio
@@ -148,6 +149,13 @@ class HLSProxyExtractorHandlerMixin:
             )
             extractor_key = self._extractor_key_for_instance(extractor)
             stream_key = self._stream_key_for_url(request.query.get("orig_url") or url)
+
+            # Check if this extractor should bypass WARP
+            if extractor_key:
+                warp_off_list = config_store.get("warp_off_extractors", [])
+                if extractor_key in warp_off_list:
+                    bypass_warp = True
+                    logger.debug(f"WARP off for extractor: {extractor_key}")
 
             stream_url = result["destination_url"]
             stream_headers = result.get("request_headers", {})

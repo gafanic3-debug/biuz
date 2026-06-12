@@ -3,7 +3,7 @@ export PYTHONPATH=/app
 
 WARP_EXCLUDED_HOSTS="${WARP_EXCLUDED_HOSTS:-cinemacity.cc,*.cinemacity.cc,cccdn.net,*.cccdn.net,strem.fun,*.strem.fun,torrentio.strem.fun,real-debrid.com,*.real-debrid.com,realdebrid.com,*.realdebrid.com,api.real-debrid.com,premiumize.me,*.premiumize.me,www.premiumize.me,alldebrid.com,*.alldebrid.com,api.alldebrid.com,debrid-link.com,*.debrid-link.com,debridlink.com,*.debridlink.com,api.debrid-link.com,torbox.app,*.torbox.app,api.torbox.app,offcloud.com,*.offcloud.com,api.offcloud.com,put.io,*.put.io,api.put.io}"
 WARP_LICENSE_KEY="${WARP_LICENSE_KEY:-}"
-WARP_MODE="${WARP_MODE:-warp-cli}"
+WARP_MODE="${WARP_MODE:-wireproxy}"
 WARP_PROXY_HOST="${WARP_PROXY_HOST:-127.0.0.1}"
 WARP_PROXY_PORT="${WARP_PROXY_PORT:-1080}"
 
@@ -53,8 +53,7 @@ EOF
 }
 
 # --- Cloudflare WARP Setup ---
-if [ "$ENABLE_WARP" = "true" ]; then
-    if [ "$WARP_MODE" = "wireproxy" ]; then
+if [ "$WARP_MODE" = "wireproxy" ]; then
         start_wireproxy_warp
     else
     echo "Starting Cloudflare WARP..."
@@ -77,19 +76,6 @@ if [ "$ENABLE_WARP" = "true" ]; then
     done
 
     if [ $COUNT -lt $MAX_RETRIES ]; then
-        if ! warp-cli --accept-tos status | grep -q "Registration Name"; then
-            echo "Registering WARP..."
-            warp-cli --accept-tos registration delete > /dev/null 2>&1 || true
-            warp-cli --accept-tos registration new
-        fi
-
-        if [ -n "$WARP_LICENSE_KEY" ]; then
-            echo "Setting WARP license key..."
-            warp-cli --accept-tos registration license "$WARP_LICENSE_KEY"
-        fi
-
-        echo "Connecting to WARP..."
-
         IFS=',' read -ra WARP_EXCLUDED_HOSTS_LIST <<< "$WARP_EXCLUDED_HOSTS"
         for domain in "${WARP_EXCLUDED_HOSTS_LIST[@]}"; do
             domain="$(echo "$domain" | xargs)"
@@ -100,33 +86,26 @@ if [ "$ENABLE_WARP" = "true" ]; then
             ) || true
         done
 
-        # Set mode to Proxy (SOCKS5 mode)
-        warp-cli --accept-tos mode proxy
-        # Set proxy port to 1080
-        warp-cli --accept-tos proxy port 1080
-        
-        warp-cli --accept-tos connect
-        
-        # Small delay for connection to stabilize
+        echo "Connecting to WARP via Python..."
+        python /app/warp_setup.py
+
         echo "⏳ Waiting for WARP to stabilize (10s)..."
         sleep 10
-        
-        # Check if SOCKS5 proxy is actually listening
+
         if command -v nc >/dev/null 2>&1 && nc -z 127.0.0.1 1080; then
             echo "✅ WARP SOCKS5 proxy is listening on port 1080."
         else
             echo "⚠️ WARP SOCKS5 proxy not detected on port 1080 yet, but proceeding..."
         fi
-        
+
         warp-cli --accept-tos status
 
-    fi
-    fi
 fi
+    fi
 
 PROXY_VARS=""
 SOLVERS_FORCE_WARP_PROXY="${SOLVERS_FORCE_WARP_PROXY:-false}"
-if [ "$ENABLE_WARP" = "true" ] && [ "$SOLVERS_FORCE_WARP_PROXY" = "true" ]; then
+if [ "$SOLVERS_FORCE_WARP_PROXY" = "true" ]; then
     PROXY_VARS="HTTP_PROXY=socks5://${WARP_PROXY_HOST}:${WARP_PROXY_PORT} HTTPS_PROXY=socks5://${WARP_PROXY_HOST}:${WARP_PROXY_PORT} NO_PROXY=localhost,127.0.0.1"
     echo "FlareSolverr forced to use WARP SOCKS5 proxy globally: socks5://${WARP_PROXY_HOST}:${WARP_PROXY_PORT}"
 else
