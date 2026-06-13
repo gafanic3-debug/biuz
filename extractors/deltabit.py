@@ -102,10 +102,11 @@ class DeltabitExtractor:
     async def extract(self, url: str, **kwargs) -> dict:
         # Normalize URL for cache
         normalized_url = url.strip()
+        cache_key = (normalized_url, self.bypass_warp_active)
         DeltabitExtractor._prune_result_cache()
         # Check cache (10 minutes validity)
-        if normalized_url in DeltabitExtractor._result_cache:
-            res, ts = DeltabitExtractor._result_cache[normalized_url]
+        if cache_key in DeltabitExtractor._result_cache:
+            res, ts = DeltabitExtractor._result_cache[cache_key]
             if time.time() - ts < DeltabitExtractor._cache_ttl:
                 logger.info(f"🚀 [Cache Hit] Using cached extraction result for: {normalized_url}")
                 return res
@@ -163,7 +164,7 @@ class DeltabitExtractor:
                 link_match = re.search(r'sources:\s*\["([^"]+)"', html) or re.search(r'file:\s*["\']([^"\']+)["\']', html)
                 if link_match: 
                     result = self._build_result(link_match.group(1), url, ua, proxy, cookies=cookies)
-                    DeltabitExtractor._result_cache[normalized_url] = (result, time.time())
+                    DeltabitExtractor._result_cache[cache_key] = (result, time.time())
                     DeltabitExtractor._prune_result_cache()
                     logger.info("✅ Extraction success (direct source found)")
                     return result
@@ -182,7 +183,7 @@ class DeltabitExtractor:
             link_match = re.search(r'sources:\s*\["([^"]+)"', post_html) or re.search(r'file:\s*["\']([^"\']+)["\']', post_html)
             if not link_match: raise ExtractorError("Deltabit: Video source not found")
             result = self._build_result(link_match.group(1), url, ua, proxy, cookies=cookies)
-            DeltabitExtractor._result_cache[normalized_url] = (result, time.time())
+            DeltabitExtractor._result_cache[cache_key] = (result, time.time())
             DeltabitExtractor._prune_result_cache()
             return result
         finally:

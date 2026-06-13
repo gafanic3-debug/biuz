@@ -180,6 +180,10 @@ class HLSProxyDashMixin:
             forced_proxy = request.query.get("proxy") or None
             bypass_warp = request.query.get("warp", "").lower() == "off"
 
+            _GLOBAL_PROXIES = _shared.GLOBAL_PROXIES
+            _ENABLE_WARP = _shared.ENABLE_WARP
+            _TRANSPORT_ROUTES = _shared.TRANSPORT_ROUTES
+
             if self._should_force_direct_from_query(request):
                 session = await self._get_session(url=key_url)
                 logger.debug("Using direct session for AES key request (forced)")
@@ -188,9 +192,6 @@ class HLSProxyDashMixin:
                     key_url, bypass_warp=bypass_warp, forced_proxy=forced_proxy
                 )
                 # ✅ LOG CRITICO: Deve essere info per apparire nei log standard
-                _GLOBAL_PROXIES = _shared.GLOBAL_PROXIES
-                _ENABLE_WARP = _shared.ENABLE_WARP
-                _TRANSPORT_ROUTES = _shared.TRANSPORT_ROUTES
                 if proxy_used:
                     logger.info(f"🔐 [Key Proxy] Routing through: {proxy_used}")
                 elif (

@@ -42,10 +42,12 @@ class AdnExtractor:
         "(KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36"
     )
 
-    def __init__(self, request_headers: dict, proxies: list = None):
+    def __init__(self, request_headers: dict, proxies: list = None, bypass_warp: bool = False):
         self.request_headers = request_headers or {}
         self.proxies = proxies or _cfg.GLOBAL_PROXIES
+        self.bypass_warp_active = bypass_warp
         self.session: Optional[ClientSession] = None
+        self._session_proxy = None
 
     def _get_random_proxy(self):
         return random.choice(self.proxies) if self.proxies else None
@@ -54,8 +56,9 @@ class AdnExtractor:
         if self.session is None or self.session.closed:
             timeout = ClientTimeout(total=30, connect=15, sock_read=20)
             proxy = get_proxy_for_url(
-                self.BASE_URL, global_proxies=self.proxies, bypass_warp=True
+                self.BASE_URL, global_proxies=self.proxies, bypass_warp=self.bypass_warp_active
             )
+            self._session_proxy = proxy
             if proxy:
                 logger.debug("ADN routing: PROXY (%s)", proxy)
             else:
@@ -99,6 +102,7 @@ class AdnExtractor:
 
         sources = payload.get("sources") if isinstance(payload, dict) else None
         if not isinstance(sources, list) or not sources:
+            logger.debug(f"ADN API payload: {payload}")
             raise ExtractorError("ADN payload has no sources")
 
         cdn = next(
@@ -128,6 +132,8 @@ class AdnExtractor:
                 "Connection": "keep-alive",
             },
             "mediaflow_endpoint": "proxy_stream_endpoint",
+            "bypass_warp": self.bypass_warp_active,
+            "selected_proxy": self._session_proxy,
         }
 
     async def close(self):

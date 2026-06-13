@@ -114,11 +114,38 @@ class HLSProxyStreamingMixin:
                 request.query.get("extractor_key"),
                 request.query.get("stream_key"),
             )
-
             headers = dict(stream_headers)
             is_special_cdn = is_special_cdn_stream(segment_url)
 
-            # Passa attraverso alcuni headers del client
+            # Pass headers from query parameters (h_ parameters)
+            for param_name, param_value in request.query.items():
+                if param_name.startswith("h_"):
+                    header_name = param_name[2:]
+                    # Remove duplicate headers case-insensitively
+                    keys_to_remove = [k for k in headers.keys() if k.lower() == header_name.lower()]
+                    for k in keys_to_remove:
+                        del headers[k]
+                    headers[header_name] = param_value
+
+            # Strip IP/Proxy leak headers
+            for h in ["x-forwarded-for", "x-real-ip", "forwarded", "via"]:
+                headers.pop(h, None)
+                headers.pop(h.lower(), None)
+
+            # Normalize critical headers to Title-Case
+            for key in list(headers.keys()):
+                if key.lower() == "user-agent":
+                    headers["User-Agent"] = headers.pop(key)
+                elif key.lower() == "referer":
+                    headers["Referer"] = headers.pop(key)
+                elif key.lower() == "origin":
+                    headers["Origin"] = headers.pop(key)
+                elif key.lower() == "authorization":
+                    headers["Authorization"] = headers.pop(key)
+                elif key.lower() == "cookie":
+                    headers["Cookie"] = headers.pop(key)
+
+            # Pass through range and validation headers from client
             for header in ["range", "if-none-match", "if-modified-since"]:
                 if header in request.headers:
                     headers[header] = request.headers[header]

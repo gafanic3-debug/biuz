@@ -357,16 +357,38 @@ class VixSrcExtractor:
                 logger.info("Attempt %s/%s for URL: %s", attempt + 1, retries, url)
 
                 async with session.get(url, headers=final_headers, timeout=aiohttp.ClientTimeout(total=15, connect=10)) as response:
-                    response.raise_for_status()
                     content = await response.text()
+                    status = response.status
+
+                    if self._is_cloudflare_challenge(content, status):
+                        logger.info("Cloudflare challenge screen or status %s detected for %s. Triggering solver...", status, url)
+                        try:
+                            return await self._make_solver_request(url, forced_proxy=forced_proxy)
+                        except Exception as solver_exc:
+                            logger.warning("Solver fallback failed for %s: %s", url, solver_exc)
+                            if attempt == retries - 1:
+                                try:
+                                    logger.info("Trying curl_cffi after solver failure for %s", url)
+                                    headers_403 = final_headers or self._default_headers()
+                                    return await self._make_curl_request(url, headers=headers_403, forced_proxy=forced_proxy)
+                                except Exception as cffi_exc:
+                                    logger.warning("curl_cffi fallback failed for %s: %s", url, cffi_exc)
+                            raise aiohttp.ClientResponseError(
+                                request_info=response.request_info,
+                                history=response.history,
+                                status=status,
+                                message=f"Cloudflare challenge bypass failed: {solver_exc}"
+                            )
+
+                    response.raise_for_status()
 
                     class MockResponse:
-                        def __init__(self, text_content, status, headers_dict, response_url):
+                        def __init__(self, text_content, status_val, headers_dict, response_url):
                             self._text = text_content
-                            self.status = status
+                            self.status = status_val
                             self.headers = headers_dict
                             self.url = response_url
-                            self.status_code = status
+                            self.status_code = status_val
                             self.text = text_content
 
                         async def text_async(self):
@@ -428,13 +450,18 @@ class VixSrcExtractor:
                 if e.status == 404:
                     raise ExtractorError(f"VixSrc content not found (404): {url}")
 
-                if e.status == 403 and attempt == retries - 1:
+                if e.status == 403:
                     try:
-                        logger.info("aiohttp 403, trying curl_cffi with configured proxies for %s", url)
-                        headers_403 = final_headers or self._default_headers()
-                        return await self._make_curl_request(url, headers=headers_403, forced_proxy=forced_proxy)
-                    except Exception as cffi_exc:
-                        logger.warning("curl_cffi fallback failed for %s: %s", url, cffi_exc)
+                        return await self._make_solver_request(url, forced_proxy=forced_proxy)
+                    except Exception as solver_exc:
+                        logger.warning("Solver fallback failed for %s: %s", url, solver_exc)
+                        if attempt == retries - 1:
+                            try:
+                                logger.info("aiohttp 403 and solver failed, trying curl_cffi for %s", url)
+                                headers_403 = final_headers or self._default_headers()
+                                return await self._make_curl_request(url, headers=headers_403, forced_proxy=forced_proxy)
+                            except Exception as cffi_exc:
+                                logger.warning("curl_cffi fallback failed for %s: %s", url, cffi_exc)
 
                 if attempt == retries - 1:
                     raise ExtractorError(f"Final HTTP error {e.status} for {url}: {str(e)}")
@@ -445,6 +472,61 @@ class VixSrcExtractor:
                 if attempt == retries - 1:
                     raise ExtractorError(f"Final error for {url}: {str(e)}")
                 await asyncio.sleep(initial_delay)
+
+    async def _make_solver_request(self, url: str, forced_proxy: str | None = None) -> Any:
+        """Richiede il bypass di Cloudflare al solver locale in caso di 403."""
+        from config import FLARESOLVERR_URL, FLARESOLVERR_TIMEOUT, build_proxy_with_auth
+        from utils.solver_manager import ensure_flaresolverr
+
+        await ensure_flaresolverr()
+        endpoint = f"{FLARESOLVERR_URL.rstrip('/')}/v1"
+
+        payload = {
+            "cmd": "request.get",
+            "url": url,
+            "maxTimeout": (FLARESOLVERR_TIMEOUT + 60) * 1000
+        }
+
+        proxy = forced_proxy or self.last_used_proxy
+        if proxy:
+            p = build_proxy_with_auth(proxy)
+            if p:
+                payload["proxy"] = p
+
+        logger.info("403 detected: requesting Cloudflare bypass via custom solver for %s", url)
+
+        async with aiohttp.ClientSession() as s:
+            async with s.post(endpoint, json=payload, timeout=aiohttp.ClientTimeout(total=FLARESOLVERR_TIMEOUT + 95)) as r:
+                d = await r.json()
+
+        if d.get("status") == "ok":
+            sol = d["solution"]
+            html = sol.get("response", "")
+            status = sol.get("status", 200)
+
+            class MockResponse:
+                def __init__(self, text_content, status_code, headers_dict, response_url):
+                    self.text = text_content
+                    self.status_code = status_code
+                    self.headers = headers_dict
+                    self.url = response_url
+                async def text_async(self):
+                    return self.text
+                def raise_for_status(self):
+                    pass
+
+            return MockResponse(html, status, {}, url)
+
+        raise ExtractorError(f"Solver bypass failed: {d.get('message')}")
+
+    def _is_cloudflare_challenge(self, html: str, status: int) -> bool:
+        """Determines if the response is a Cloudflare verification challenge screen."""
+        if status in (403, 503):
+            return True
+        low_html = html.lower()
+        if "cloudflare" in low_html and ("ray id" in low_html or "captcha" in low_html or "turnstile" in low_html or "challenge-platform" in low_html):
+            return True
+        return False
 
     async def _parse_html_simple(self, html_content: str, tag: str, attrs: dict = None):
         """Parser HTML semplificato senza BeautifulSoup."""

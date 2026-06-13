@@ -17,20 +17,23 @@ A powerful, lightweight proxy server designed to handle HLS, M3U8, and DASH (MPD
 - **📼 Integrated DVR**: Record live streams while watching or schedule background recordings.
 - **🛠️ Playlist Builder**: Web interface to combine, manage, and proxy entire M3U playlists.
 - **☁️ Cloud Ready**: Optimized for HuggingFace, Render, Koyeb, and other free-tier platforms.
-- **🛡️ Cloudflare Bypass**: Integrated with FlareSolverr for bot protection bypass.
+- **🛡️ Cloudflare Bypass**: Integrated with CF Turnstile Solver for bot protection bypass.
 
 ---
 
 ## 🚀 Quick Start
 
 ### 🐳 Docker (Recommended)
-The Docker image includes EasyProxy plus integrated FlareSolverr for maximum compatibility.
+The Docker image includes EasyProxy plus integrated CF Turnstile Solver for maximum compatibility. 
+
+To run the container and persist config/recordings on your host machine, mount the `/data` directory:
 
 ```bash
-docker run -d -p 7860:7860 --name EasyProxy ghcr.io/realbestia1/easyproxy:latest
+# Basic run with persistent volume
+docker run -d -p 7860:7860 -v ./data:/data --name EasyProxy ghcr.io/realbestia1/easyproxy:latest
 
-# With Cloudflare WARP (Bypass IP blocks)
-docker run -d --name EasyProxy --cap-add=NET_ADMIN --device /dev/net/tun -e ENABLE_WARP=true -p 7860:7860 ghcr.io/realbestia1/easyproxy:latest
+# With Cloudflare WARP (Bypass IP blocks, requires additional network privileges)
+docker run -d --name EasyProxy -p 7860:7860 -v ./data:/data --cap-add=NET_ADMIN --device /dev/net/tun ghcr.io/realbestia1/easyproxy:latest
 ```
 
 ### 🐍 Python (Local)
@@ -44,7 +47,7 @@ docker run -d --name EasyProxy --cap-add=NET_ADMIN --device /dev/net/tun -e ENAB
 The easiest way to get EasyProxy plus solvers on Windows:
 1. Clone the repository and enter the folder.
 2. Run **`start_full.bat`**.
-*This script automatically handles FlareSolverr, patches, and dependencies.*
+*This script automatically handles CF Turnstile Solver, patches, and dependencies.*
 
 #### 🐧 Linux / macOS Setup
 1. **Install dependencies**:
@@ -105,7 +108,7 @@ Configure the server via a `.env` file. See `.env.example` for all options.
 | `WARP_LICENSE_KEY` | Optional WARP+ license key | - |
 
 ### 🛡️ Cloudflare WARP Integration
-The Docker image includes an integrated Cloudflare WARP client to bypass IP-based blocks. When enabled, outgoing traffic used by FlareSolverr and EasyProxy can be routed through the Cloudflare network.
+The Docker image includes an integrated Cloudflare WARP client to bypass IP-based blocks. When enabled, outgoing traffic used by CF Turnstile Solver and EasyProxy can be routed through the Cloudflare network.
 
 **Requirements:**
 To function correctly, the container needs elevated network permissions:
@@ -119,7 +122,7 @@ To function correctly, the container needs elevated network permissions:
 
 **Example command (Docker Run):**
 ```bash
-docker run -d --name easyproxy --cap-add=NET_ADMIN --device /dev/net/tun -e ENABLE_WARP=true -p 7860:7860 ghcr.io/realbestia1/easyproxy:latest
+docker run -d --name easyproxy -p 7860:7860 -v ./data:/data ghcr.io/realbestia1/easyproxy:latest
 ```
 
 For restricted Docker environments that cannot expose `/dev/net/tun`, build the image and run with `-e ENABLE_WARP=true -e WARP_MODE=wireproxy`.

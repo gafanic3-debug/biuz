@@ -103,16 +103,16 @@ if [ "$WARP_MODE" = "wireproxy" ]; then
 fi
     fi
 
-PROXY_VARS=""
-SOLVERS_FORCE_WARP_PROXY="${SOLVERS_FORCE_WARP_PROXY:-false}"
-if [ "$SOLVERS_FORCE_WARP_PROXY" = "true" ]; then
-    PROXY_VARS="HTTP_PROXY=socks5://${WARP_PROXY_HOST}:${WARP_PROXY_PORT} HTTPS_PROXY=socks5://${WARP_PROXY_HOST}:${WARP_PROXY_PORT} NO_PROXY=localhost,127.0.0.1"
-    echo "FlareSolverr forced to use WARP SOCKS5 proxy globally: socks5://${WARP_PROXY_HOST}:${WARP_PROXY_PORT}"
-else
-    echo "FlareSolverr will use per-request routing from EasyProxy (supports real warp=off bypass)."
-fi
+# Start Xvfb virtual display
+echo "Starting Xvfb on display :99..."
+Xvfb :99 -screen 0 1920x1080x24 -ac +extension GLX +render -noreset > /dev/null 2>&1 &
+export DISPLAY=:99
 
-echo "FlareSolverr available for lazy start (on-demand via Python code)"
+# Wait for Xvfb to be fully initialized before launching Python/Gunicorn
+echo "Waiting for Xvfb to initialize..."
+sleep 3
+
+echo "SeleniumBase (UC mode) will run under Xvfb display :99 (on-demand via Python)"
 
 echo "Starting EasyProxy..."
 cd /app

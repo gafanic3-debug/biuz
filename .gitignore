@@ -8,3 +8,5 @@ byparr/
 dlstreams_activity.txt
 /scripts
 config.json
+/downloaded_files
+/cache

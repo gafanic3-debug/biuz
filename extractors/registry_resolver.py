@@ -242,6 +242,7 @@ async def resolve_extractor(self, url: str, request_headers: dict, host: str = N
                     )
                 return self.extractors[key]
             elif host in ["sports99", "cdnlivetv"]:
+                key = "sports99_direct" if bypass_warp else "sports99"
                 if key not in self.extractors:
                     self.extractors[key] = Sports99Extractor(
                         request_headers, proxies=proxy_list
@@ -272,7 +273,7 @@ async def resolve_extractor(self, url: str, request_headers: dict, host: str = N
                 key = "adn_direct" if bypass_warp else "adn"
                 if key not in self.extractors:
                     self.extractors[key] = AdnExtractor(
-                        request_headers, proxies=proxy_list
+                        request_headers, proxies=proxy_list, bypass_warp=bypass_warp
                     )
                 return self.extractors[key]
 
@@ -515,7 +516,7 @@ async def resolve_extractor(self, url: str, request_headers: dict, host: str = N
                 )
             return self.extractors[key]
         elif "ok.ru" in url or "odnoklassniki" in url:
-            key = "okru"
+            key = "okru_direct" if bypass_warp else "okru"
             proxy = get_proxy_for_url("ok.ru", bypass_warp=bypass_warp)
             proxy_list = _build_proxy_list(proxy, "okru")
             if key not in self.extractors:
@@ -527,7 +528,7 @@ async def resolve_extractor(self, url: str, request_headers: dict, host: str = N
             d in url
             for d in ["streamwish", "swish", "wishfast", "embedwish", "wishembed"]
         ):
-            key = "streamwish"
+            key = "streamwish_direct" if bypass_warp else "streamwish"
             proxy = get_proxy_for_url(
                 "streamwish", bypass_warp=bypass_warp)
             proxy_list = _build_proxy_list(proxy, "streamwish")
@@ -537,7 +538,7 @@ async def resolve_extractor(self, url: str, request_headers: dict, host: str = N
                 )
             return self.extractors[key]
         elif "supervideo" in url:
-            key = "supervideo"
+            key = "supervideo_direct" if bypass_warp else "supervideo"
             proxy = get_proxy_for_url(
                 "supervideo", bypass_warp=bypass_warp)
             proxy_list = _build_proxy_list(proxy, "supervideo")
@@ -547,7 +548,7 @@ async def resolve_extractor(self, url: str, request_headers: dict, host: str = N
                 )
             return self.extractors[key]
         elif "vidxgo" in url.lower():
-            key = "vidxgo"
+            key = "vidxgo_direct" if bypass_warp else "vidxgo"
             proxy = get_proxy_for_url(
                 "vidxgo", bypass_warp=bypass_warp)
             proxy_list = _build_proxy_list(proxy, "vidxgo")
@@ -561,7 +562,7 @@ async def resolve_extractor(self, url: str, request_headers: dict, host: str = N
             self.extractors[key].request_headers = request_headers
             return self.extractors[key]
         elif "dropload" in url:
-            key = "dropload"
+            key = "dropload_direct" if bypass_warp else "dropload"
             proxy = get_proxy_for_url(
                 "dropload", bypass_warp=bypass_warp)
             proxy_list = _build_proxy_list(proxy, "dropload")
@@ -575,7 +576,7 @@ async def resolve_extractor(self, url: str, request_headers: dict, host: str = N
             for ext in (".mp4", ".m3u8", ".ts", ".mkv", ".avi", ".mpd")
         ):
             # Only match embed pages (e.g. uqload.is/abc123.html), not CDN video URLs (m80.uqload.is/.../v.mp4)
-            key = "uqload"
+            key = "uqload_direct" if bypass_warp else "uqload"
             proxy = get_proxy_for_url("uqload", bypass_warp=bypass_warp)
             proxy_list = _build_proxy_list(proxy, "uqload")
             if key not in self.extractors:
@@ -584,7 +585,7 @@ async def resolve_extractor(self, url: str, request_headers: dict, host: str = N
                 )
             return self.extractors[key]
         elif "vidmoly" in url:
-            key = "vidmoly"
+            key = "vidmoly_direct" if bypass_warp else "vidmoly"
             proxy = get_proxy_for_url("vidmoly", bypass_warp=bypass_warp)
             proxy_list = _build_proxy_list(proxy, "vidmoly")
             if key not in self.extractors:
@@ -593,7 +594,7 @@ async def resolve_extractor(self, url: str, request_headers: dict, host: str = N
                 )
             return self.extractors[key]
         elif "vidoza" in url or "videzz" in url:
-            key = "vidoza"
+            key = "vidoza_direct" if bypass_warp else "vidoza"
             proxy = get_proxy_for_url("vidoza", bypass_warp=bypass_warp)
             proxy_list = _build_proxy_list(proxy, "vidoza")
             if key not in self.extractors:
@@ -612,7 +613,7 @@ async def resolve_extractor(self, url: str, request_headers: dict, host: str = N
                 "turbovidhls",
             ]
         ):
-            key = "turbovidplay"
+            key = "turbovidplay_direct" if bypass_warp else "turbovidplay"
             proxy = get_proxy_for_url(
                 "turbovidplay", bypass_warp=bypass_warp)
             proxy_list = _build_proxy_list(proxy, "turbovidplay")
@@ -624,7 +625,7 @@ async def resolve_extractor(self, url: str, request_headers: dict, host: str = N
         elif "/e/" in url and any(
             d in url for d in ["f16px", "embedme", "embedsb", "playersb"]
         ):
-            key = "f16px"
+            key = "f16px_direct" if bypass_warp else "f16px"
             proxy = get_proxy_for_url("f16px", bypass_warp=bypass_warp)
             proxy_list = _build_proxy_list(proxy, "f16px")
             if key not in self.extractors:
@@ -633,7 +634,7 @@ async def resolve_extractor(self, url: str, request_headers: dict, host: str = N
                 )
             return self.extractors[key]
         elif "cdnlivetv.tv" in url or "cdnlivetv.ru" in url:
-            key = "sports99"
+            key = "sports99_direct" if bypass_warp else "sports99"
             proxy = get_proxy_for_url("cdnlivetv.tv", bypass_warp=bypass_warp)
             proxy_list = _build_proxy_list(proxy, "sports99")
             if key not in self.extractors:

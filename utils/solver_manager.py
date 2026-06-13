@@ -1,426 +1,545 @@
 import asyncio
-import json
 import logging
 import os
-import platform
-import signal
-import subprocess
-import sys
+import uuid
+import json
 import time
-
-import aiohttp
+from urllib.parse import urlparse
+from aiohttp import web, ClientSession, ClientTimeout
+from pyvirtualdisplay import Display
+from seleniumbase import Driver
 
 from config import FLARESOLVERR_TIMEOUT, FLARESOLVERR_URL
 
 logger = logging.getLogger(__name__)
 
-_flaresolverr_process: asyncio.subprocess.Process | None = None
-_flaresolverr_owner = False  # True se questo worker ha avviato FlareSolverr
-_flaresolverr_ready = asyncio.Event()
-_FLARESOLVERR_IDLE_TIMEOUT = 60
-_FLARESOLVERR_STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "flaresolverr_state.json")
-_FLARESOLVERR_STATE_FILE = os.path.normpath(_FLARESOLVERR_STATE_FILE)
-_FLARESOLVERR_LOCK_FILE = _FLARESOLVERR_STATE_FILE + ".lock"
+# Global state for the mock server
+_mock_server_running = False
+_runner = None
+_sessions_proxies = {}
 
+COOKIE_CACHE_FILE = os.path.normpath(os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "cache", "solver_cookies.json")))
 
-async def _find_flaresolverr_script() -> str | None:
-    """Cerca lo script FlareSolverr in varie posizioni."""
-    candidates = [
-        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "flaresolverr", "src", "flaresolverr.py"),
-        os.path.join(os.getcwd(), "flaresolverr", "src", "flaresolverr.py"),
-        os.path.join(os.getcwd(), "src", "flaresolverr.py"),
-    ]
-    for path in candidates:
-        if os.path.exists(path):
-            return path
-    return None
-
-
-async def _find_flaresolverr_dir() -> str | None:
-    script_path = await _find_flaresolverr_script()
-    if script_path:
-        return os.path.dirname(os.path.dirname(script_path))
-    return None
-
-
-def _read_fs_state() -> dict | None:
-    try:
-        with open(_FLARESOLVERR_STATE_FILE, "r") as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError, Exception):
-        return None
-
-
-def _write_fs_state(data: dict):
-    tmp = _FLARESOLVERR_STATE_FILE + ".tmp"
-    try:
-        with open(tmp, "w") as f:
-            json.dump(data, f)
-        os.replace(tmp, _FLARESOLVERR_STATE_FILE)
-    except Exception:
+def _load_cookie_cache() -> dict:
+    if os.path.exists(COOKIE_CACHE_FILE):
         try:
-            os.remove(tmp)
+            with open(COOKIE_CACHE_FILE, "r") as f:
+                return json.load(f)
         except Exception:
             pass
+    return {}
 
-
-def _remove_fs_state():
+def _save_cookie_cache(cache: dict):
+    os.makedirs(os.path.dirname(COOKIE_CACHE_FILE), exist_ok=True)
     try:
-        os.remove(_FLARESOLVERR_STATE_FILE)
-    except FileNotFoundError:
-        pass
-    try:
-        os.remove(_FLARESOLVERR_LOCK_FILE)
-    except FileNotFoundError:
-        pass
+        with open(COOKIE_CACHE_FILE, "w") as f:
+            json.dump(cache, f)
+    except Exception as e:
+        logger.error(f"Failed to save cookie cache: {e}")
 
-
-def _try_claim_lock() -> bool:
-    try:
-        fd = os.open(_FLARESOLVERR_LOCK_FILE, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        os.close(fd)
+def is_cloudflare_challenge(html: str, status: int) -> bool:
+    if status in (403, 503):
         return True
-    except FileExistsError:
-        return False
-    except Exception:
-        return False
-
-
-def _release_lock():
-    try:
-        os.remove(_FLARESOLVERR_LOCK_FILE)
-    except FileNotFoundError:
-        pass
-
-
-def _is_pid_alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
+    low_html = html.lower()
+    if "cloudflare" in low_html and ("ray id" in low_html or "captcha" in low_html or "turnstile" in low_html or "challenge-platform" in low_html):
         return True
-    except (OSError, ProcessLookupError):
-        return False
+    return False
 
-
-def _my_pid() -> int:
-    return os.getpid()
-
-
-def _collect_process_tree(pid: int) -> list[int]:
-    """Raccoglie tutti i PID dell'albero (foglie→radice) per kill sicuro."""
-    result = []
+async def fetch_page_with_cached_cookies(url: str, cookies_list: list, user_agent: str, proxy: str | dict = None, post_data: str = None) -> dict | None:
+    """Tries to fetch the page using cached cookies. Returns solution dict if successful, else None."""
+    headers = {"User-Agent": user_agent}
+    if post_data:
+        headers["Content-Type"] = "application/x-www-form-urlencoded"
+        
+    cookies_dict = {c["name"]: c["value"] for c in cookies_list}
+    
+    proxy_url = None
+    if proxy:
+        if isinstance(proxy, dict):
+            proxy_url = proxy.get("url")
+        else:
+            proxy_url = proxy
+            
+    connector = None
+    if proxy_url and proxy_url.startswith("socks"):
+        try:
+            from aiohttp_socks import ProxyConnector
+            connector = ProxyConnector.from_url(proxy_url)
+            proxy_url = None
+        except ImportError:
+            pass
+            
     try:
-        children = []
-        for entry in os.listdir("/proc"):
-            if entry.isdigit():
+        timeout = ClientTimeout(total=15)
+        async with ClientSession(connector=connector, cookies=cookies_dict, timeout=timeout) as session:
+            if post_data:
+                req_coro = session.post(url, headers=headers, data=post_data, proxy=proxy_url, allow_redirects=True)
+            else:
+                req_coro = session.get(url, headers=headers, proxy=proxy_url, allow_redirects=True)
+                
+            async with req_coro as resp:
+                html = await resp.text(errors="ignore")
+                status = resp.status
+                
+                if is_cloudflare_challenge(html, status):
+                    logger.info(f"Cache check: Cloudflare challenge detected for {url} (status {status})")
+                    return None
+                    
+                logger.info(f"Cache HIT: successfully fetched {url} without browser (status {status})")
+                
+                # Update cookies with any newly set cookies in response headers
+                cookie_map = {c["name"]: c for c in cookies_list}
+                for cookie_name, cookie_meta in resp.cookies.items():
+                    cookie_map[cookie_name] = {
+                        "name": cookie_name,
+                        "value": cookie_meta.value,
+                        "domain": cookie_meta.get("domain", ""),
+                        "path": cookie_meta.get("path", "/"),
+                    }
+                
+                return {
+                    "status": "ok",
+                    "message": "Bypassed using cached cookies",
+                    "solution": {
+                        "url": str(resp.url),
+                        "status": status,
+                        "cookies": list(cookie_map.values()),
+                        "userAgent": user_agent,
+                        "response": html
+                    }
+                }
+    except Exception as e:
+        logger.warning(f"Failed to fetch page with cached cookies: {e}")
+        return None
+
+def run_seleniumbase_request(url: str, proxy: str | dict = None, post_data: str = None) -> dict:
+    """Runs SeleniumBase in UC mode under a virtual display (on Linux) to bypass Cloudflare."""
+    display = None
+    driver = None
+    try:
+        # 1. Start Xvfb virtual display (Linux only)
+        if os.name != "nt":
+            logger.info("Starting virtual display (Xvfb)...")
+            display = Display(visible=0, size=(1920, 1080))
+            display.start()
+        else:
+            logger.info("Running on Windows; skipping Xvfb initialization.")
+        
+        # 2. Extract proxy string
+        proxy_string = None
+        if proxy:
+            if isinstance(proxy, dict):
+                proxy_string = proxy.get("url")
+            else:
+                proxy_string = proxy
+        
+        # Determine Chromium binary location
+        chrome_path = "/usr/bin/chromium"
+        if not os.path.exists(chrome_path):
+            chrome_path = None
+            
+        logger.info(f"Launching SeleniumBase Driver (uc=True) for URL: {url} (proxy: {proxy_string})")
+        
+        driver_kwargs = {
+            "uc": True,
+            "proxy": proxy_string
+        }
+        if chrome_path:
+            driver_kwargs["binary_location"] = chrome_path
+            
+        driver = Driver(**driver_kwargs)
+        
+        # Force a non-maximized window size to prevent Chrome from remembering maximized state
+        try:
+            driver.set_window_size(1280, 800)
+        except Exception:
+            pass
+        
+        # If it's a POST request, open the base domain URL first to bypass Turnstile
+        if post_data:
+            parsed_url = urlparse(url)
+            base_url = f"{parsed_url.scheme}://{parsed_url.netloc}/"
+            logger.info(f"POST request detected. Opening base domain first: {base_url}")
+            driver.uc_open_with_reconnect(base_url, reconnect_time=7)
+        else:
+            logger.info("Loading page...")
+            driver.uc_open_with_reconnect(url, reconnect_time=4)
+        
+        # --- Challenge Resolution Logic ---
+        bypassed_auto = False
+        has_iframe = False
+        logger.info("Checking challenge status...")
+        
+        # Cloudflare challenge page titles in all common languages
+        challenge_titles = [
+            "just a moment",        # EN
+            "cloudflare",           # Generic
+            "cf-challenge",         # Generic
+            "ci siamo quasi",       # IT
+            "attention required",   # EN
+            "un instant",           # FR
+            "un moment",            # FR/RO
+            "einen moment",         # DE
+            "un momento",           # ES
+            "só um momento",        # PT
+            "um momento",           # PT alt
+            "even geduld",          # NL
+            "bir an",               # TR
+            "chwileczk",            # PL
+            "ett ögonblick",        # SV
+            "et øjeblik",           # DA
+            "et øyeblikk",          # NO
+            "hetkinen",             # FI
+            "pillanatot",           # HU
+            "okamžik",              # CS
+            "okamihu",              # SK
+            "подождите",            # RU
+            "зачекайте",            # UK
+            "少々お待ち",             # JA
+            "请稍候",                # ZH-CN
+            "請稍候",                # ZH-TW
+            "잠시만",                # KO
+            "لحظة",                  # AR
+        ]
+        
+        # Helper: check if still on challenge page
+        def _is_on_challenge():
+            try:
+                t = driver.title or ""
+                h = driver.page_source or ""
+                t_low = t.lower()
+                is_title = any(m in t_low for m in challenge_titles)
+                is_html = is_cloudflare_challenge(h, 200)
+                return (is_title or is_html), t_low
+            except Exception:
+                return True, ""
+        
+        # Phase 1: Quick check & click on initial load
+        driver.sleep(3.5)
+        on_challenge, title_low = _is_on_challenge()
+        if on_challenge:
+            logger.info("Challenge detected on initial load. Attempting to click widget...")
+            try:
+                driver.uc_gui_click_captcha()
+                driver.sleep(4)
+                on_challenge, title_low = _is_on_challenge()
+                if not on_challenge:
+                    logger.info("Cloudflare challenge resolved on initial load.")
+                    bypassed_auto = True
+            except Exception as ex:
+                logger.warning(f"Initial click attempt error: {ex}")
+        else:
+            logger.info("Bypassed automatically on initial load.")
+            bypassed_auto = True
+        
+        # Phase 2: Fallback attempts with reload if not bypassed
+        if not bypassed_auto:
+            logger.info(f"Still on challenge page (title='{title_low[:40]}'). Initiating reloads with disconnect + click fallback...")
+            
+            for attempt in range(1, 3):
                 try:
-                    with open(f"/proc/{entry}/status", "r") as f:
-                        for line in f:
-                            if line.startswith("PPid:"):
-                                if int(line.split()[1]) == pid:
-                                    children.append(int(entry))
-                                break
-                except (FileNotFoundError, ValueError, OSError):
-                    pass
-        for child in children:
-            result.extend(_collect_process_tree(child))
-        result.append(pid)
+                    logger.info(f"Attempt {attempt}/2: reloading with CDP off...")
+                    driver.uc_open_with_reconnect(url, reconnect_time=4)
+                    driver.sleep(3)
+                    
+                    on_challenge, title_low = _is_on_challenge()
+                    if not on_challenge:
+                        logger.info(f"Bypassed automatically on reload {attempt}.")
+                        bypassed_auto = True
+                        break
+                    
+                    logger.info(f"Clicking CF widget (reload attempt {attempt})...")
+                    driver.uc_gui_click_captcha()
+                    driver.sleep(4)
+                    
+                    on_challenge, title_low = _is_on_challenge()
+                    if not on_challenge:
+                        logger.info(f"Cloudflare challenge resolved on reload attempt {attempt}.")
+                        bypassed_auto = True
+                        break
+                except Exception as ex:
+                    logger.warning(f"Reload attempt {attempt} error: {ex}")
+            
+        # If it's a POST request, execute the POST programmatically inside the browser context
+        status_code = 200
+        html = ""
+        current_url = url
+        title = driver.title
+        
+        if post_data:
+            logger.info(f"Executing programmatic POST request to: {url}")
+            js_script = """
+                const callback = arguments[arguments.length - 1];
+                fetch(arguments[0], {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    },
+                    body: arguments[1]
+                })
+                .then(r => r.text().then(text => callback({status: r.status, url: r.url, text: text})))
+                .catch(err => callback({status: 0, url: '', text: err.message}));
+            """
+            post_res = driver.execute_async_script(js_script, url, post_data)
+            status_code = post_res.get("status", 200)
+            html = post_res.get("text", "")
+            current_url = post_res.get("url", url)
+        else:
+            title = driver.title
+            html = driver.page_source
+            current_url = driver.current_url
+            
+        # Verify page retrieval (skip verification check for POST since it contains POST response instead of challenge)
+        if not post_data:
+            if is_cloudflare_challenge(html, 200) or "just a moment" in title.lower() or "cloudflare" in title.lower():
+                logger.warning(f"Bypass verification failed. Title: '{title}'. HTML length: {len(html)}")
+                return {
+                    "status": "error",
+                    "message": "Cloudflare challenge bypass failed (verification check failed)",
+                    "solution": {}
+                }
+        
+        # Extract cookies in FlareSolverr format
+        selenium_cookies = driver.get_cookies()
+        cookies = []
+        for c in selenium_cookies:
+            cookies.append({
+                "name": c.get("name"),
+                "value": c.get("value"),
+                "domain": c.get("domain"),
+                "path": c.get("path"),
+                "expiry": c.get("expiry"),
+                "httpOnly": c.get("httpOnly"),
+                "secure": c.get("secure")
+            })
+            
+        # Extract user agent
+        ua = driver.execute_script("return navigator.userAgent;")
+        
+        logger.info(f"Request completed. Cookies found: {len(cookies)}")
+        
+        return {
+            "status": "ok",
+            "message": "Request completed successfully",
+            "solution": {
+                "url": current_url,
+                "status": status_code,
+                "cookies": cookies,
+                "userAgent": ua,
+                "response": html
+            }
+        }
+    except Exception as e:
+        logger.error(f"Error during SeleniumBase solver execution: {e}", exc_info=True)
+        return {
+            "status": "error",
+            "message": f"SeleniumBase solver error: {str(e)}",
+            "solution": {}
+        }
+    finally:
+        if driver:
+            try:
+                driver.quit()
+            except Exception:
+                pass
+        if display:
+            try:
+                display.stop()
+            except Exception:
+                pass
+
+
+_last_cache_hits = {}
+
+
+async def handle_v1_request(request):
+    """Handles standard FlareSolverr v1 API POST requests."""
+    try:
+        body = await request.json()
     except Exception:
-        pass
-    return result
+        return web.json_response({"status": "error", "message": "Invalid JSON"}, status=400)
+        
+    cmd = body.get("cmd")
+    logger.info(f"Received solver command: {cmd}")
+    
+    if cmd in ("request.get", "request.post"):
+        url = body.get("url")
+        proxy = body.get("proxy")
+        post_data = body.get("postData")
+        session_id = body.get("session")
+        
+        if not proxy and session_id and session_id in _sessions_proxies:
+            proxy = _sessions_proxies[session_id]
+            
+        def normalize_proxy_to_str(p) -> str:
+            if not p:
+                return "direct"
+            if isinstance(p, dict):
+                return p.get("url", "direct")
+            return str(p)
+            
+        current_proxy_str = normalize_proxy_to_str(proxy)
+        domain = urlparse(url).netloc
+        cache = _load_cookie_cache()
+        
+        # Check cache
+        cached_entry = cache.get(domain)
+        if cached_entry:
+            cached_proxy_str = cached_entry.get("proxy", "direct")
+            cache_age = time.time() - cached_entry.get("timestamp", 0)
+            
+            # Check if this domain was served from cache very recently
+            last_hit_time = _last_cache_hits.get(domain, 0)
+            time_since_last_hit = time.time() - last_hit_time
+            is_rapid_retry = time_since_last_hit < 15
+            
+            # Disable rapid retry check for POST requests to allow GET->POST sequences
+            if cmd == "request.post":
+                is_rapid_retry = False
+            
+            # Use cache ONLY if it's fresh (less than 1 hour), the proxy/IP has not changed, and it's not a rapid retry
+            if cache_age < 3600 and current_proxy_str == cached_proxy_str and not is_rapid_retry:
+                logger.info(f"Found cached cookies for domain: {domain} (age: {int(cache_age)}s, proxy: {current_proxy_str}). Verifying...")
+                res = await fetch_page_with_cached_cookies(
+                    url, 
+                    cached_entry["cookies"], 
+                    cached_entry["userAgent"], 
+                    proxy,
+                    post_data=post_data if cmd == "request.post" else None
+                )
+                if res:
+                    # Update cache hit timestamp
+                    _last_cache_hits[domain] = time.time()
+                    # Update the cache with any new cookies captured
+                    cached_entry["cookies"] = res["solution"]["cookies"]
+                    cached_entry["timestamp"] = time.time()
+                    cache[domain] = cached_entry
+                    _save_cookie_cache(cache)
+                    return web.json_response(res)
+            else:
+                reason = "stale" if cache_age >= 3600 else ("rapid retry / failed cache" if is_rapid_retry else "proxy/IP changed")
+                logger.info(f"Cached cookies for domain {domain} are invalid or failed ({reason}). Forcing new solver run.")
+                if is_rapid_retry:
+                    # Clear cache entry to prevent looping
+                    cache.pop(domain, None)
+                    _save_cookie_cache(cache)
+                
+        # Cache miss or verification failed, run SeleniumBase
+        loop = asyncio.get_running_loop()
+        res = await loop.run_in_executor(None, run_seleniumbase_request, url, proxy, post_data)
+        
+        if res.get("status") == "ok":
+            # Save new cookies to cache along with the proxy used
+            cache[domain] = {
+                "cookies": res["solution"]["cookies"],
+                "userAgent": res["solution"]["userAgent"],
+                "timestamp": time.time(),
+                "proxy": current_proxy_str
+            }
+            _save_cookie_cache(cache)
+            # Set the initial cache hit timestamp
+            _last_cache_hits[domain] = time.time()
+            
+        return web.json_response(res)
+        
+    elif cmd == "sessions.create":
+        session_id = f"sb-session-{uuid.uuid4()}"
+        proxy = body.get("proxy")
+        if proxy:
+            _sessions_proxies[session_id] = proxy
+        return web.json_response({"status": "ok", "message": "Session created", "session": session_id})
+        
+    elif cmd == "sessions.destroy":
+        session_id = body.get("session")
+        if session_id:
+            _sessions_proxies.pop(session_id, None)
+        return web.json_response({"status": "ok", "message": "Session destroyed"})
+        
+    elif cmd == "sessions.list":
+        return web.json_response({"status": "ok", "sessions": list(_sessions_proxies.keys())})
+        
+    elif cmd == "health":
+        return web.json_response({"status": "ok", "message": "SeleniumBase Solver Emulator is healthy", "version": "1.1"})
+        
+    else:
+        return web.json_response({"status": "error", "message": f"Unsupported command: {cmd}"})
 
 
 async def ensure_flaresolverr() -> bool:
-    global _flaresolverr_process, _flaresolverr_owner
-
-    if not FLARESOLVERR_URL:
-        return False
-
-    if _flaresolverr_process and _flaresolverr_process.returncode is None:
-        _touch_last_used()
+    """Starts our custom local emulator on the expected port (8191)."""
+    global _mock_server_running, _runner
+    if _mock_server_running:
         return True
-
-    state = _read_fs_state()
-    if state:
-        pid = state.get("pid", 0)
-        if _is_pid_alive(pid) and state.get("status") == "ready":
-            if await _is_flaresolverr_alive():
-                _touch_last_used()
-                return True
-        else:
-            _remove_fs_state()
-
-    if _try_claim_lock():
-        _flaresolverr_owner = True
-        _flaresolverr_ready.clear()
-        script = await _find_flaresolverr_script()
-        if not script:
-            _release_lock()
-            _flaresolverr_owner = False
-            logger.warning("FlareSolverr script not found, skipping auto-start")
-            return False
-
-        fs_dir = os.path.dirname(os.path.dirname(script))
-        logger.info("Starting FlareSolverr lazily from %s ...", fs_dir)
-
-        try:
-            _flaresolverr_process = await asyncio.create_subprocess_exec(
-                sys.executable, script,
-                cwd=fs_dir,
-                env={**os.environ, "PORT": "8191"},
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.DEVNULL,
-                start_new_session=True,
-            )
-
-            for attempt in range(30):
-                await asyncio.sleep(1)
-                if _flaresolverr_process.returncode is not None:
-                    logger.error("FlareSolverr exited prematurely (code %s)", _flaresolverr_process.returncode)
-                    _remove_fs_state()
-                    _release_lock()
-                    _flaresolverr_owner = False
-                    return False
-                if await _is_flaresolverr_alive():
-                    _write_fs_state({
-                        "pid": _flaresolverr_process.pid,
-                        "owner_pid": _my_pid(),
-                        "status": "ready",
-                        "url": FLARESOLVERR_URL,
-                        "last_used": time.time(),
-                    })
-                    logger.info("FlareSolverr is ready")
-                    _flaresolverr_ready.set()
-                    return True
-
-            logger.warning("FlareSolverr failed to start within 30s")
-            _remove_fs_state()
-            _release_lock()
-            _flaresolverr_owner = False
-            return False
-        except Exception as e:
-            logger.error("FlareSolverr start failed: %s", e)
-            _remove_fs_state()
-            _release_lock()
-            _flaresolverr_owner = False
-            return False
-    else:
-        logger.info("FlareSolverr being started by another worker, waiting...")
-        for _ in range(30):
-            await asyncio.sleep(1)
-            state = _read_fs_state()
-            if state and state.get("status") == "ready":
-                if await _is_flaresolverr_alive():
-                    _touch_last_used()
-                    return True
-        logger.warning("Timeout waiting for another worker to start FlareSolverr")
-        return False
-
-
-def _touch_last_used():
-    state = _read_fs_state()
-    if state:
-        state["last_used"] = time.time()
-        _write_fs_state(state)
-
-
-async def _is_flaresolverr_alive() -> bool:
-    """Verifica se FlareSolverr risponde."""
+        
+    # Check if something is already running on port 8191 first
     try:
-        endpoint = f"{FLARESOLVERR_URL.rstrip('/')}/v1"
-        async with aiohttp.ClientSession() as s:
-            async with s.post(endpoint, json={"cmd": "sessions.list"}, timeout=3) as r:
-                return r.status == 200
+        timeout = ClientTimeout(total=3)
+        async with ClientSession(timeout=timeout) as session:
+            async with session.post("http://127.0.0.1:8191/v1", json={"cmd": "health"}) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    if data.get("status") == "ok" and "SeleniumBase" in data.get("message", ""):
+                        logger.info("An active, compatible SeleniumBase mock server is already running on port 8191.")
+                        _mock_server_running = True
+                        return True
     except Exception:
+        pass
+
+    logger.info("Initializing custom SeleniumBase solver manager...")
+    app = web.Application()
+    app.router.add_post('/v1', handle_v1_request)
+    
+    _runner = web.AppRunner(app)
+    await _runner.setup()
+    site = web.TCPSite(_runner, '127.0.0.1', 8191)
+    
+    try:
+        await site.start()
+        _mock_server_running = True
+        logger.info("Custom SeleniumBase mock server listening on http://127.0.0.1:8191/v1")
+        return True
+    except Exception as e:
+        logger.error(
+            f"CRITICAL: Failed to start local SeleniumBase API emulator on port 8191: {e}. "
+            "Please ensure no other process (like standard FlareSolverr or a zombie EasyProxy process) is using port 8191."
+        )
         return False
 
 
 async def try_shutdown_idle_flaresolverr():
-    if not _flaresolverr_owner:
-        return
-    if not _flaresolverr_process or _flaresolverr_process.returncode is not None:
-        return
-    state = _read_fs_state()
-    if not state:
-        return
-    if time.time() - state.get("last_used", 0) > _FLARESOLVERR_IDLE_TIMEOUT:
-        logger.info("FlareSolverr idle >%ss, shutting down", _FLARESOLVERR_IDLE_TIMEOUT)
-        await shutdown_flaresolverr()
+    pass
+
 
 async def shutdown_flaresolverr():
-    global _flaresolverr_process, _flaresolverr_owner
-    proc = _flaresolverr_process
-    _flaresolverr_process = None
-    _flaresolverr_owner = False
-    _remove_fs_state()
-    _release_lock()
-
-    if not proc or proc.returncode is not None:
-        return
-
-    pid = proc.pid
-    if platform.system() == "Windows":
-        try:
-            subprocess.run(
-                ["taskkill", "/F", "/T", "/PID", str(pid)],
-                capture_output=True, timeout=10,
-            )
-        except Exception:
-            pass
-    else:
-        try:
-            pids = _collect_process_tree(pid)
-            for p in pids:
-                try:
-                    os.kill(p, signal.SIGTERM)
-                except (ProcessLookupError, OSError):
-                    pass
-            await asyncio.sleep(2)
-            for p in pids:
-                try:
-                    os.kill(p, signal.SIGKILL)
-                except (ProcessLookupError, OSError):
-                    pass
-            try:
-                await asyncio.wait_for(proc.wait(), timeout=5)
-            except (asyncio.TimeoutError, ProcessLookupError):
-                pass
-            subprocess.run(
-                ["pkill", "-f", "chromium.*headless"],
-                capture_output=True, timeout=5,
-            )
-        except ProcessLookupError:
-            pass
-        except Exception:
-            pass
+    """Stops the local API emulator."""
+    global _mock_server_running, _runner
+    if _runner:
+        logger.info("Stopping custom SeleniumBase API emulator...")
+        await _runner.cleanup()
+        _runner = None
+        _mock_server_running = False
+        logger.info("Custom SeleniumBase API emulator stopped.")
 
 
 class SolverSessionManager:
-    """
-    Gestore delle sessioni FlareSolverr.
-    Supporta sessioni persistenti esplicite o sessioni temporanee.
-    """
-
-    _instance = None
-    _persistent_sessions = {}  # {key: session_id}
-    _sessions_file = "persistent_sessions.json"
-    _lock = asyncio.Lock()
-    _initialized = False
-
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super(SolverSessionManager, cls).__new__(cls)
-        return cls._instance
-
-    async def _init_if_needed(self):
-        if self._initialized:
-            return
-        async with self._lock:
-            if self._initialized:
-                return
-            if os.path.exists(self._sessions_file):
-                try:
-                    with open(self._sessions_file, "r") as f:
-                        self._persistent_sessions = json.load(f)
-                    logger.info(
-                        f"FlareSolverr: Caricate {len(self._persistent_sessions)} sessioni persistenti dal file."
-                    )
-                except Exception as e:
-                    logger.warning(f"FlareSolverr: Errore caricamento sessioni: {e}")
-            self._initialized = True
-
-    def _save_sessions(self):
-        try:
-            with open(self._sessions_file, "w") as f:
-                json.dump(self._persistent_sessions, f)
-        except Exception as e:
-            logger.warning(f"FlareSolverr: Errore salvataggio sessioni: {e}")
-
+    """Compatibility class mimicking the original session manager."""
+    
     async def get_session(self, proxy: str = None) -> tuple[str, bool]:
-        """
-        Ottiene una sessione FlareSolverr temporanea.
-        Ritorna una tupla (session_id, is_persistent).
-        """
-        await self._init_if_needed()
-        if not FLARESOLVERR_URL:
-            return None, False
-        if not await ensure_flaresolverr():
-            return None, False
-
-        session_id = await self._create_session(proxy)
-        return session_id, False
-
-    async def get_persistent_session(self, key: str, proxy: str = None) -> str:
-        """Ottiene o crea una sessione persistente identificata da una chiave."""
-        await self._init_if_needed()
-        if not FLARESOLVERR_URL:
-            return None
-        if not await ensure_flaresolverr():
-            return None
-
-        async with self._lock:
-            if key in self._persistent_sessions:
-                sid = self._persistent_sessions[key]
-                if await self._session_exists(sid):
-                    return sid
-                logger.info(f"FlareSolverr: Sessione {sid} per {key} non piu valida o scaduta.")
-
-            logger.info(f"FlareSolverr: Creazione nuova sessione persistente per chiave: {key}")
-            session_id = await self._create_session(proxy)
-            if session_id:
-                self._persistent_sessions[key] = session_id
-                self._save_sessions()
-            return session_id
-
-    async def _session_exists(self, session_id: str) -> bool:
-        endpoint = f"{FLARESOLVERR_URL.rstrip('/')}/v1"
-        payload = {"cmd": "sessions.list"}
-        async with aiohttp.ClientSession() as session:
-            try:
-                async with session.post(endpoint, json=payload, timeout=10) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        return session_id in data.get("sessions", [])
-            except Exception:
-                pass
-        return False
-
-    async def _create_session(self, proxy: str = None) -> str:
-        endpoint = f"{FLARESOLVERR_URL.rstrip('/')}/v1"
-        payload = {
-            "cmd": "sessions.create",
-            "maxTimeout": (FLARESOLVERR_TIMEOUT + 60) * 1000,
-        }
+        await ensure_flaresolverr()
+        session_id = f"sb-session-{uuid.uuid4()}"
         if proxy:
-            solver_proxy = proxy.replace("socks5h://", "socks5://") if proxy.startswith("socks5h://") else proxy
-            payload["proxy"] = {"url": solver_proxy}
-
-        async with aiohttp.ClientSession() as session:
-            try:
-                async with session.post(
-                    endpoint,
-                    json=payload,
-                    timeout=aiohttp.ClientTimeout(total=60),
-                ) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        if data.get("status") == "ok":
-                            return data.get("session")
-            except Exception as e:
-                logger.error(f"FlareSolverr: Errore creazione sessione: {e}")
-        return None
-
+            _sessions_proxies[session_id] = proxy
+        return session_id, False
+        
+    async def get_persistent_session(self, key: str, proxy: str = None) -> str:
+        await ensure_flaresolverr()
+        session_id = f"sb-session-{key}"
+        if proxy:
+            _sessions_proxies[session_id] = proxy
+        return session_id
+        
     async def release_session(self, session_id: str, is_persistent: bool):
-        """Chiude la sessione se non e persistente."""
-        if not session_id or is_persistent or not FLARESOLVERR_URL:
-            return
-
-        endpoint = f"{FLARESOLVERR_URL.rstrip('/')}/v1"
-        payload = {"cmd": "sessions.destroy", "session": session_id}
-        async with aiohttp.ClientSession() as session:
-            try:
-                await session.post(endpoint, json=payload, timeout=10)
-            except Exception:
-                pass
-
+        if session_id:
+            _sessions_proxies.pop(session_id, None)
 
 solver_manager = SolverSessionManager()

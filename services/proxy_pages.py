@@ -708,8 +708,8 @@ class HLSProxyPagesMixin:
             config_store.update(updates)
             reload_config()
             clear_proxy_affinity()
-            # Invalidate extractor cache if proxy-related settings changed
-            if any(k in updates for k in ("global_proxies", "extractor_proxies", "transport_routes")):
+            # Invalidate extractor cache if proxy/routing/WARP settings changed
+            if any(k in updates for k in ("global_proxies", "extractor_proxies", "transport_routes", "warp_off_extractors", "warp_exclude_domains_custom", "enable_warp")):
                 self.extractors.clear()
                 logger.info("Extractor cache cleared due to config change")
 

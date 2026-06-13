@@ -22,6 +22,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     netcat-openbsd \
     ffmpeg \
     chromium \
+    xvfb \
+    python3-tk \
+    python3-dev \
     libnss3 \
     libatk1.0-0 \
     libatk-bridge2.0-0 \
@@ -70,15 +73,6 @@ ENV CHROME_EXE_PATH=/usr/bin/chromium
 ENV CHROME_BIN=/usr/bin/chromium
 ENV CHROME_DRIVER_PATH=/usr/bin/chromedriver
 
-# 3. FlareSolverr v3 (Python)
-ARG FLARESOLVERR_REFRESH=1
-RUN echo "FS refresh: ${FLARESOLVERR_REFRESH}" \
-    && git clone https://github.com/FlareSolverr/FlareSolverr.git /app/flaresolverr \
-    && cd /app/flaresolverr \
-    && sed -i 's/driver_executable_path=driver_exe_path/driver_executable_path="\/usr\/bin\/chromedriver"/' src/utils.py \
-    && sed -i "s|options.add_argument('--no-sandbox')|options.add_argument('--no-sandbox'); options.add_argument('--disable-dev-shm-usage'); options.add_argument('--disable-gpu'); options.add_argument('--headless=new'); options.add_argument('--disable-audio-service'); options.add_argument('--disable-software-rasterizer'); options.add_argument('--disable-crashpad-foreground'); options.add_argument('--disable-background-networking'); options.add_argument('--disable-component-update'); options.add_argument('--disable-sync'); options.add_argument('--disable-background-timer-throttling'); options.add_argument('--disable-backgrounding-occluded-windows'); options.add_argument('--disable-renderer-backgrounding'); options.add_argument('--disable-features=ChromeWhatsNewUI,TranslateUI,ChromeLabs,InterestFeedContentSuggestions,MediaRouter'); options.add_argument('--single-process')|" src/utils.py \
-    && sed -i "s|^\([[:space:]]*\)start_xvfb_display()|\1pass|g" src/utils.py \
-    && pip install --no-cache-dir -r requirements.txt
 
 # 4. EasyProxy Dependencies
 WORKDIR /app
@@ -92,8 +86,9 @@ RUN chmod +x entrypoint.sh
 
 # 5. Metadata & Ports
 LABEL org.opencontainers.image.title="EasyProxy Monolith"
-LABEL org.opencontainers.image.description="All-in-one HLS Proxy with integrated FlareSolverr v3"
+LABEL org.opencontainers.image.description="All-in-one HLS Proxy with integrated CF Turnstile Solver"
 EXPOSE 7860 8191
+VOLUME ["/data"]
 
 # 6. Execution
 ENTRYPOINT ["/bin/bash", "/app/entrypoint.sh"]

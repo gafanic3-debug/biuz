@@ -1,6 +1,6 @@
 services:
   easyproxy:
-    build: .
+    build: ghcr.io/realbestia1/easyproxy:latest
     container_name: easyproxy
     restart: unless-stopped
     ports:

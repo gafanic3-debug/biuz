@@ -206,7 +206,8 @@ class VidXgoExtractor:
 "origin": vd_domain,
         }
 
-        cache_key = (url, vd_domain, kwargs.get("proxy") or "")
+        bypass_warp = bool(kwargs.get("bypass_warp"))
+        cache_key = (url, vd_domain, kwargs.get("proxy") or "", bypass_warp)
         cached = self._result_cache.get(cache_key)
         if cached:
             cached_ts, cached_result = cached
