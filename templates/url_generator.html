@@ -317,7 +317,7 @@
             display: flex;
             align-items: flex-start;
             gap: 10px;
-            padding: 0.65rem 1rem;
+            padding: 0.8rem 1.1rem;
             border-radius: var(--border-radius);
             border: 1px solid var(--border-primary);
             background: var(--surface);
@@ -325,6 +325,7 @@
             transition: var(--transition-normal);
             font-size: 0.85rem;
             color: var(--text-secondary);
+            user-select: none;
         }
 
         .checkbox-label:hover {
@@ -332,13 +333,16 @@
             background: var(--surface-glass);
         }
 
+        /* Active Glow State - triggers when input inside is checked */
+        .checkbox-label:has(input:checked) {
+            background: rgba(99, 102, 241, 0.12) !important;
+            border-color: var(--accent-primary) !important;
+            color: var(--text-primary) !important;
+            box-shadow: var(--glow-primary) !important;
+        }
+
         .checkbox-label input[type="checkbox"] {
-            width: 16px;
-            height: 16px;
-            accent-color: var(--accent-primary);
-            cursor: pointer;
-            flex-shrink: 0;
-            margin-top: 2px;
+            display: none; /* Hide default checkbox completely */
         }
 
         .checkbox-label code {
