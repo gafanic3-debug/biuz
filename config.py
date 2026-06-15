@@ -435,6 +435,34 @@ def mark_proxy_dead(proxy_url: str, dead_duration: int = 300):
         logging.warning("WARP proxy %s failure observed; keeping it managed by socket health checks.", proxy_url)
         return
 
+    # If this is the only custom proxy configured in the system, do not mark it dead.
+    # We want to keep trying to use it on subsequent requests.
+    try:
+        global_proxies = _get_dynamic_global_proxies()
+        extractor_proxies = _cfg_get("extractor_proxies", {})
+        transport_routes = _get_dynamic_transport_routes()
+        
+        extractor_list = []
+        for val in extractor_proxies.values():
+            if isinstance(val, str):
+                extractor_list.append(val)
+            elif isinstance(val, list):
+                extractor_list.extend(val)
+                
+        transport_list = []
+        for route in transport_routes:
+            if isinstance(route, dict):
+                p_val = route.get("proxy")
+                if p_val:
+                    transport_list.append(p_val)
+                    
+        custom_pool = {p for p in (global_proxies + extractor_list + transport_list) if p}
+        if len(custom_pool) <= 1:
+            logging.info("Proxy %s failed, but it is the only custom proxy configured. Not marking dead.", proxy_url)
+            return
+    except Exception:
+        pass
+
     now = time.time()
     with _proxy_lock:
         DEAD_PROXIES[proxy_url] = now + dead_duration
