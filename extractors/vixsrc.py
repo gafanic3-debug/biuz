@@ -361,23 +361,17 @@ class VixSrcExtractor:
                     status = response.status
 
                     if self._is_cloudflare_challenge(content, status):
-                        logger.info("Cloudflare challenge screen or status %s detected for %s. Triggering solver...", status, url)
+                        logger.info("Cloudflare challenge screen or status %s detected for %s. Triggering curl_cffi direct bypass...", status, url)
                         try:
-                            return await self._make_solver_request(url, forced_proxy=forced_proxy)
-                        except Exception as solver_exc:
-                            logger.warning("Solver fallback failed for %s: %s", url, solver_exc)
-                            if attempt == retries - 1:
-                                try:
-                                    logger.info("Trying curl_cffi after solver failure for %s", url)
-                                    headers_403 = final_headers or self._default_headers()
-                                    return await self._make_curl_request(url, headers=headers_403, forced_proxy=forced_proxy)
-                                except Exception as cffi_exc:
-                                    logger.warning("curl_cffi fallback failed for %s: %s", url, cffi_exc)
+                            headers_cf = final_headers or self._default_headers()
+                            return await self._make_curl_request(url, headers=headers_cf, forced_proxy=forced_proxy)
+                        except Exception as cffi_exc:
+                            logger.warning("curl_cffi fallback failed for %s: %s", url, cffi_exc)
                             raise aiohttp.ClientResponseError(
                                 request_info=response.request_info,
                                 history=response.history,
                                 status=status,
-                                message=f"Cloudflare challenge bypass failed: {solver_exc}"
+                                message=f"Cloudflare challenge bypass failed: {cffi_exc}"
                             )
 
                     response.raise_for_status()
@@ -452,16 +446,11 @@ class VixSrcExtractor:
 
                 if e.status == 403:
                     try:
-                        return await self._make_solver_request(url, forced_proxy=forced_proxy)
-                    except Exception as solver_exc:
-                        logger.warning("Solver fallback failed for %s: %s", url, solver_exc)
-                        if attempt == retries - 1:
-                            try:
-                                logger.info("aiohttp 403 and solver failed, trying curl_cffi for %s", url)
-                                headers_403 = final_headers or self._default_headers()
-                                return await self._make_curl_request(url, headers=headers_403, forced_proxy=forced_proxy)
-                            except Exception as cffi_exc:
-                                logger.warning("curl_cffi fallback failed for %s: %s", url, cffi_exc)
+                        logger.info("aiohttp 403 detected, trying curl_cffi for %s", url)
+                        headers_403 = final_headers or self._default_headers()
+                        return await self._make_curl_request(url, headers=headers_403, forced_proxy=forced_proxy)
+                    except Exception as cffi_exc:
+                        logger.warning("curl_cffi fallback failed for %s: %s", url, cffi_exc)
 
                 if attempt == retries - 1:
                     raise ExtractorError(f"Final HTTP error {e.status} for {url}: {str(e)}")
@@ -473,51 +462,7 @@ class VixSrcExtractor:
                     raise ExtractorError(f"Final error for {url}: {str(e)}")
                 await asyncio.sleep(initial_delay)
 
-    async def _make_solver_request(self, url: str, forced_proxy: str | None = None) -> Any:
-        """Richiede il bypass di Cloudflare al solver locale in caso di 403."""
-        from config import FLARESOLVERR_URL, FLARESOLVERR_TIMEOUT, build_proxy_with_auth
-        from utils.solver_manager import ensure_flaresolverr
 
-        await ensure_flaresolverr()
-        endpoint = f"{FLARESOLVERR_URL.rstrip('/')}/v1"
-
-        payload = {
-            "cmd": "request.get",
-            "url": url,
-            "maxTimeout": (FLARESOLVERR_TIMEOUT + 60) * 1000
-        }
-
-        proxy = forced_proxy or self.last_used_proxy
-        if proxy:
-            p = build_proxy_with_auth(proxy)
-            if p:
-                payload["proxy"] = p
-
-        logger.info("403 detected: requesting Cloudflare bypass via custom solver for %s", url)
-
-        async with aiohttp.ClientSession() as s:
-            async with s.post(endpoint, json=payload, timeout=aiohttp.ClientTimeout(total=FLARESOLVERR_TIMEOUT + 95)) as r:
-                d = await r.json()
-
-        if d.get("status") == "ok":
-            sol = d["solution"]
-            html = sol.get("response", "")
-            status = sol.get("status", 200)
-
-            class MockResponse:
-                def __init__(self, text_content, status_code, headers_dict, response_url):
-                    self.text = text_content
-                    self.status_code = status_code
-                    self.headers = headers_dict
-                    self.url = response_url
-                async def text_async(self):
-                    return self.text
-                def raise_for_status(self):
-                    pass
-
-            return MockResponse(html, status, {}, url)
-
-        raise ExtractorError(f"Solver bypass failed: {d.get('message')}")
 
     def _is_cloudflare_challenge(self, html: str, status: int) -> bool:
         """Determines if the response is a Cloudflare verification challenge screen."""
@@ -728,6 +673,7 @@ class VixSrcExtractor:
 
     async def extract(self, url: str, **kwargs) -> Dict[str, Any]:
         """Estrae URL VixSrc."""
+        url = url.replace("vixsrc.to", "calpezz8.space").replace("vixcloud.co", "calpezz8.space")
         try:
             forced_proxy = kwargs.get("proxy")
             if forced_proxy:
@@ -880,9 +826,9 @@ class VixSrcExtractor:
             if not final_url:
                 raise ExtractorError("No playlist data found in response")
 
-            # Rewrite vixcloud.co → vixsrc.to in the final URL too
-            final_url = final_url.replace("vixcloud.co", "vixsrc.to")
-            stream_url = url.replace("vixcloud.co", "vixsrc.to")
+            # Rewrite vixcloud.co/vixsrc.to → calpezz8.space in the final URL too
+            final_url = final_url.replace("vixcloud.co", "calpezz8.space").replace("vixsrc.to", "calpezz8.space")
+            stream_url = url.replace("vixcloud.co", "calpezz8.space").replace("vixsrc.to", "calpezz8.space")
 
             stream_headers = self._fresh_headers(Referer=stream_url)
 

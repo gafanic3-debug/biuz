@@ -296,22 +296,22 @@ async def resolve_extractor(self, url: str, request_headers: dict, host: str = N
                     request_headers, proxies=proxy_list
                 )
             return self.extractors[key]
-        elif "vixsrc.to/" in url.lower() and any(
+        elif ("vixsrc.to/" in url.lower() or "calpezz8.space/" in url.lower()) and any(
             x in url for x in ["/movie/", "/tv/", "/iframe/", "/embed/", "/playlist/"]
         ):
             key = "vixsrc_direct" if bypass_warp else "vixsrc"
-            proxy = get_proxy_for_url("vixsrc.to", bypass_warp=bypass_warp)
+            proxy = get_proxy_for_url("calpezz8.space", bypass_warp=bypass_warp)
             proxy_list = _build_proxy_list(proxy, "vixsrc")
             if key not in self.extractors:
                 self.extractors[key] = VixSrcExtractor(
                     request_headers, proxies=proxy_list, bypass_warp=bypass_warp
                 )
             return self.extractors[key]
-        elif "vixcloud.co/" in url.lower() and any(
+        elif ("vixcloud.co/" in url.lower() or "calpezz8.space/" in url.lower()) and any(
             x in url.lower() for x in ["/embed/", "/playlist/"]
         ):
             key = "vixcloud_direct" if bypass_warp else "vixcloud"
-            proxy = get_proxy_for_url("vixcloud.co", bypass_warp=bypass_warp)
+            proxy = get_proxy_for_url("calpezz8.space", bypass_warp=bypass_warp)
             proxy_list = _build_proxy_list(proxy, "vixcloud")
             if key not in self.extractors:
                 self.extractors[key] = VixSrcExtractor(

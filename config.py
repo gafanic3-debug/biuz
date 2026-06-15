@@ -653,7 +653,7 @@ def get_ssl_setting_for_url(url: str, transport_routes: list = None) -> bool:
     if "disable_ssl=1" in normalized_url:
         return True
 
-    vavoo_domains = ("vavoo.to", "vavoo.tv", "vavoo", "lokke.app", "mediahubmx", "vixsrc.to", "vix-content.net", "/sunshine/")
+    vavoo_domains = ("vavoo.to", "vavoo.tv", "vavoo", "lokke.app", "mediahubmx", "vixsrc.to", "vix-content.net", "/sunshine/", "calpezz8.space")
 
     if not url or not transport_routes:
         return any(domain in normalized_url for domain in vavoo_domains)
@@ -674,7 +674,7 @@ API_PASSWORD = os.environ.get("API_PASSWORD")
 PORT = int(os.environ.get("PORT", 7860))
 
 # --- Version/Mode Configuration ---
-APP_VERSION = "2.9.08"
+APP_VERSION = "2.9.09"
 
 _has_solvers = os.path.exists("flaresolverr")
 VERSION_MODE = "Full" if _has_solvers else "Light"
