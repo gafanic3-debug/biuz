@@ -43,9 +43,11 @@ from config import (
     get_connector_for_proxy,
     API_PASSWORD,
     check_password,
+    get_client_ip,
     VERSION_MODE,
     APP_VERSION,
     BYPASS_WARP_CONTEXT,
+    BYPASS_PROXIES_CONTEXT,
     SELECTED_PROXY_CONTEXT,
     STRICT_PROXY_CONTEXT,
     mark_proxy_dead,
@@ -149,6 +151,49 @@ def __getattr__(name):
     if name in _DYNAMIC_CONFIG_NAMES:
         return getattr(_config, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+# Active streams tracker: tracks active stream sessions.
+# Structure: { client_ip: { "url": str, "last_active": float, "user_agent": str } }
+ACTIVE_STREAM_SESSIONS = {}
+
+def record_stream_activity(client_ip: str, url: str, user_agent: str = "", is_segment: bool = False):
+    now = time.time()
+    # Clean up old sessions (older than 30 seconds)
+    for ip in list(ACTIVE_STREAM_SESSIONS.keys()):
+        if now - ACTIVE_STREAM_SESSIONS[ip]["last_active"] > 30:
+            ACTIVE_STREAM_SESSIONS.pop(ip, None)
+            
+    # If it is a segment request and we already have a manifest request recorded for this IP in the last 30s,
+    # just update the activity timestamp and keep the manifest URL (which is cleaner).
+    if is_segment and client_ip in ACTIVE_STREAM_SESSIONS:
+        ACTIVE_STREAM_SESSIONS[client_ip]["last_active"] = now
+        if user_agent:
+            ACTIVE_STREAM_SESSIONS[client_ip]["user_agent"] = user_agent
+    else:
+        ACTIVE_STREAM_SESSIONS[client_ip] = {
+            "url": url,
+            "last_active": now,
+            "user_agent": user_agent
+        }
+
+def get_active_streams() -> list:
+    now = time.time()
+    active = []
+    # Clean up and collect active sessions
+    for ip, info in list(ACTIVE_STREAM_SESSIONS.items()):
+        if now - info["last_active"] <= 30:
+            active.append({
+                "ip": ip,
+                "url": info["url"],
+                "last_active": info["last_active"],
+                "elapsed_since_active": int(now - info["last_active"]),
+                "user_agent": info["user_agent"]
+            })
+        else:
+            ACTIVE_STREAM_SESSIONS.pop(ip, None)
+    return active
+
 
 __all__ = [name for name in globals() if not name.startswith('__') and name not in _STDLIB_MODULES]
 # Commonly used stdlib modules exposed via star import for downstream compatibility

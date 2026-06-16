@@ -3,6 +3,7 @@ from services.proxy_shared import (
     check_password,
     web,
     BYPASS_WARP_CONTEXT,
+    BYPASS_PROXIES_CONTEXT,
     SELECTED_PROXY_CONTEXT,
     STRICT_PROXY_CONTEXT,
     check_vavoo_request,
@@ -32,9 +33,13 @@ class HLSProxyExtractorHandlerMixin:
 
         bypass_warp = request.query.get("warp", "").lower() == "off"
         token = BYPASS_WARP_CONTEXT.set(bypass_warp)
+        
+        bypass_proxies = request.query.get("proxy", "").lower() == "off"
+        proxy_bypass_token = BYPASS_PROXIES_CONTEXT.set(bypass_proxies)
+        
         selected_proxy = None
         raw_proxy = request.query.get("proxy")
-        if raw_proxy:
+        if raw_proxy and raw_proxy.lower() != "off":
             selected_proxy = urllib.parse.unquote(raw_proxy)
             if "://" not in selected_proxy and "%3a" in selected_proxy.lower():
                 selected_proxy = urllib.parse.unquote(selected_proxy)
@@ -143,16 +148,26 @@ class HLSProxyExtractorHandlerMixin:
                 url, dict(request.headers), host=host_param, bypass_warp=bypass_warp
             )
 
-            # Check if this extractor should bypass WARP based on admin config
+            # Check if this extractor should bypass WARP or proxies based on admin config
             extractor_key = self._extractor_key_for_instance(extractor)
             if extractor_key:
-                warp_off_list = config_store.get("warp_off_extractors", [])
                 base_key = extractor_key.replace("_direct", "")
+                
+                # Check warp off
+                warp_off_list = config_store.get("warp_off_extractors", [])
                 if base_key in warp_off_list:
                     bypass_warp = True
                     BYPASS_WARP_CONTEXT.set(True)
                     logger.debug(f"WARP off for extractor: {base_key}")
-                    # Re-resolve the extractor with bypass_warp = True
+                    
+                # Check proxy off
+                proxy_off_list = config_store.get("proxy_off_extractors", [])
+                if base_key in proxy_off_list:
+                    BYPASS_PROXIES_CONTEXT.set(True)
+                    logger.debug(f"Proxy off for extractor: {base_key}")
+                    
+                if base_key in warp_off_list or base_key in proxy_off_list:
+                    # Re-resolve the extractor with updated context
                     extractor = await self.get_extractor(
                         url, dict(request.headers), host=host_param, bypass_warp=bypass_warp
                     )
@@ -230,7 +245,9 @@ class HLSProxyExtractorHandlerMixin:
 
             if bypass_warp:
                 header_params += "&warp=off"
-            if selected_proxy:
+            if BYPASS_PROXIES_CONTEXT.get():
+                header_params += "&proxy=off"
+            elif selected_proxy:
                 header_params += f"&proxy={urllib.parse.quote(selected_proxy)}"
             if force_direct:
                 header_params += "&direct=1"
@@ -390,5 +407,6 @@ class HLSProxyExtractorHandlerMixin:
             )
         finally:
             BYPASS_WARP_CONTEXT.reset(token)
+            BYPASS_PROXIES_CONTEXT.reset(proxy_bypass_token)
             SELECTED_PROXY_CONTEXT.reset(proxy_token)
             STRICT_PROXY_CONTEXT.reset(strict_proxy_token)

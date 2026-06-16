@@ -14,7 +14,7 @@ class PlaylistBuilder:
     def __init__(self):
         self.user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
     
-    def rewrite_m3u_links_streaming(self, m3u_lines_iterator: Iterator[str], base_url: str, api_password: str = None, native_mpd: bool = False, bypass_warp: bool = False) -> Iterator[str]:
+    def rewrite_m3u_links_streaming(self, m3u_lines_iterator: Iterator[str], base_url: str, api_password: str = None, native_mpd: bool = False, bypass_warp: bool = False, bypass_proxies: bool = False) -> Iterator[str]:
         current_ext_headers: Dict[str, str] = {}
         current_clearkey = None  # Store clearkey from KODIPROP
         
@@ -143,6 +143,9 @@ class PlaylistBuilder:
                 if bypass_warp:
                     processed_url_content += "&warp=off"
                 
+                if bypass_proxies:
+                    processed_url_content += "&proxy=off"
+                
                 yield processed_url_content + '\n'
             else:
                 yield line_with_newline
@@ -212,7 +215,7 @@ class PlaylistBuilder:
                     if '=' in part:
                         k, v = part.split('=', 1)
                         k = k.lower()
-                        if k == 'warp':
+                        if k in ('warp', 'proxy'):
                             options[k] = v.lower() == 'off'
                         else:
                             options[k] = v.lower() == 'true'
@@ -263,7 +266,8 @@ class PlaylistBuilder:
                             'lines': item,
                             'noproxy': options.get('noproxy', False),
                             'native_mpd': options.get('native_mpd', False),
-                            'warp': options.get('warp', False)
+                            'warp': options.get('warp', False),
+                            'proxy': options.get('proxy', False)
                         })
             else:
                 # Se abbiamo un buffer pendente di elementi da ordinare, processiamolo prima
@@ -277,7 +281,7 @@ class PlaylistBuilder:
                         if item_data['noproxy']:
                             iterator = iter(item_lines)
                         else:
-                            iterator = self.rewrite_m3u_links_streaming(iter(item_lines), base_url, api_password=api_password, native_mpd=item_data.get('native_mpd', False), bypass_warp=item_data.get('warp', False))
+                            iterator = self.rewrite_m3u_links_streaming(iter(item_lines), base_url, api_password=api_password, native_mpd=item_data.get('native_mpd', False), bypass_warp=item_data.get('warp', False), bypass_proxies=item_data.get('proxy', False))
                         
                         for line in iterator:
                             if not line.endswith('\n'): line += '\n'
@@ -289,7 +293,7 @@ class PlaylistBuilder:
                 if options.get('noproxy'):
                     iterator = iter(playlist_lines)
                 else:
-                    iterator = self.rewrite_m3u_links_streaming(iter(playlist_lines), base_url, api_password=api_password, native_mpd=options.get('native_mpd', False), bypass_warp=options.get('warp', False))
+                    iterator = self.rewrite_m3u_links_streaming(iter(playlist_lines), base_url, api_password=api_password, native_mpd=options.get('native_mpd', False), bypass_warp=options.get('warp', False), bypass_proxies=options.get('proxy', False))
                 
                 for line in iterator:
                     # Salta headers globali se già gestiti
@@ -307,7 +311,7 @@ class PlaylistBuilder:
                 if item_data['noproxy']:
                     iterator = iter(item_lines)
                 else:
-                    iterator = self.rewrite_m3u_links_streaming(iter(item_lines), base_url, api_password=api_password, native_mpd=item_data.get('native_mpd', False), bypass_warp=item_data.get('warp', False))
+                    iterator = self.rewrite_m3u_links_streaming(iter(item_lines), base_url, api_password=api_password, native_mpd=item_data.get('native_mpd', False), bypass_warp=item_data.get('warp', False), bypass_proxies=item_data.get('proxy', False))
                 
                 for line in iterator:
                     if not line.endswith('\n'): line += '\n'

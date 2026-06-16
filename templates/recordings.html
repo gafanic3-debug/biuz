@@ -279,6 +279,22 @@
             border-color: var(--border-accent);
         }
 
+        .progress-bar-container {
+            width: 100%;
+            background: rgba(255, 255, 255, 0.08);
+            border-radius: 6px;
+            height: 6px;
+            margin-top: 8px;
+            overflow: hidden;
+        }
+
+        .progress-bar {
+            height: 100%;
+            background: var(--primary-gradient);
+            width: 0%;
+            transition: width 0.4s ease;
+        }
+
         .stat-value {
             font-size: 1.75rem;
             font-weight: 800;
@@ -337,18 +353,25 @@
             margin: 1rem 0;
         }
 
+        .checkbox-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 0.75rem;
+            margin-bottom: 1.25rem;
+        }
+
         .checkbox-label {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            padding: 6px 12px;
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            padding: 0.8rem 1.1rem;
             border-radius: 10px;
-            background: var(--surface-glass);
             border: 1px solid var(--border-primary);
+            background: var(--surface-glass);
             cursor: pointer;
-            font-size: 0.8rem;
-            color: var(--text-secondary);
             transition: var(--transition-normal);
+            font-size: 0.85rem;
+            color: var(--text-secondary);
             user-select: none;
         }
 
@@ -357,17 +380,29 @@
             background: var(--surface-elevated);
         }
 
+        /* Active Glow State - triggers when input inside is checked */
+        .checkbox-label:has(input:checked) {
+            background: rgba(99, 102, 241, 0.12) !important;
+            border-color: var(--accent-primary) !important;
+            color: var(--text-primary) !important;
+            box-shadow: var(--glow-primary) !important;
+        }
+
         .checkbox-label input[type="checkbox"] {
-            accent-color: var(--accent-primary);
-            width: 16px;
-            height: 16px;
-            cursor: pointer;
+            display: none; /* Hide default checkbox completely */
         }
 
         .checkbox-label code {
-            color: var(--accent-info);
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 0.75rem;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 0.78rem;
+            color: var(--accent-primary);
+        }
+
+        .checkbox-desc {
+            font-size: 0.72rem;
+            color: var(--text-muted);
+            margin-top: 4px;
+            line-height: 1.35;
         }
 
         .form-row {
@@ -750,6 +785,38 @@
             </div>
         </div>
 
+        <div class="stats-grid fade-in" style="margin-top: 1rem;">
+            <div class="stat-card" style="text-align: left; display: flex; flex-direction: column; justify-content: space-between;">
+                <div style="display: flex; justify-content: space-between; align-items: baseline;">
+                    <div class="stat-label" style="margin-top: 0;">CPU Usage</div>
+                    <div class="stat-value" id="cpuPercent" style="font-size: 1.25rem;">0%</div>
+                </div>
+                <div class="progress-bar-container">
+                    <div class="progress-bar" id="cpuBar"></div>
+                </div>
+            </div>
+            <div class="stat-card" style="text-align: left; display: flex; flex-direction: column; justify-content: space-between;">
+                <div style="display: flex; justify-content: space-between; align-items: baseline;">
+                    <div class="stat-label" style="margin-top: 0;">RAM Usage</div>
+                    <div class="stat-value" id="ramPercent" style="font-size: 1.25rem;">0%</div>
+                </div>
+                <div class="progress-bar-container">
+                    <div class="progress-bar" id="ramBar"></div>
+                </div>
+                <div class="stat-label" id="ramDetails" style="font-size: 0.65rem; margin-top: 4px; text-transform: none; text-align: right; width: 100%;">0 / 0</div>
+            </div>
+            <div class="stat-card" style="text-align: left; display: flex; flex-direction: column; justify-content: space-between;">
+                <div style="display: flex; justify-content: space-between; align-items: baseline;">
+                    <div class="stat-label" style="margin-top: 0;">Disk Space (DVR)</div>
+                    <div class="stat-value" id="diskPercent" style="font-size: 1.25rem;">0%</div>
+                </div>
+                <div class="progress-bar-container">
+                    <div class="progress-bar" id="diskBar"></div>
+                </div>
+                <div class="stat-label" id="diskDetails" style="font-size: 0.65rem; margin-top: 4px; text-transform: none; text-align: right; width: 100%;">0 / 0 (Free: 0)</div>
+            </div>
+        </div>
+
         <div class="card fade-in">
             <div class="card-header">
                 <h2 class="card-title">Start New Recording</h2>
@@ -772,11 +839,24 @@
                 <div class="checkbox-grid">
                     <label class="checkbox-label">
                         <input id="recordingBypassWarp" type="checkbox">
-                        <span>Add <code>warp=off</code></span>
+                        <div>
+                            <span>Add <code>warp=off</code></span>
+                            <div class="checkbox-desc">Bypasses the Cloudflare WARP VPN for this specific stream recording, using the server's real IP.</div>
+                        </div>
+                    </label>
+                    <label class="checkbox-label">
+                        <input id="recordingBypassProxy" type="checkbox">
+                        <div>
+                            <span>Add <code>proxy=off</code></span>
+                            <div class="checkbox-desc">Bypasses all configured custom proxies (global/per-extractor) for this stream recording.</div>
+                        </div>
                     </label>
                     <label class="checkbox-label">
                         <input id="recordingDisableSSL" type="checkbox">
-                        <span>Add <code>disable_ssl=1</code></span>
+                        <div>
+                            <span>Add <code>disable_ssl=1</code></span>
+                            <div class="checkbox-desc">Disables SSL certificate verification for this stream. Useful for self-signed or unverified SSL CDNs.</div>
+                        </div>
                     </label>
                 </div>
                 <button type="submit" class="btn btn-primary" id="startBtn">
@@ -917,6 +997,22 @@
                 document.getElementById('failedCount').textContent = failed;
                 document.getElementById('totalSize').textContent = formatBytes(totalSize);
 
+                // Update system stats if present in response
+                if (data.system_stats) {
+                    const stats = data.system_stats;
+                    
+                    document.getElementById('cpuPercent').textContent = stats.cpu.percent + '%';
+                    document.getElementById('cpuBar').style.width = stats.cpu.percent + '%';
+                    
+                    document.getElementById('ramPercent').textContent = stats.ram.percent + '%';
+                    document.getElementById('ramBar').style.width = stats.ram.percent + '%';
+                    document.getElementById('ramDetails').textContent = `${formatBytes(stats.ram.used)} / ${formatBytes(stats.ram.total)}`;
+                    
+                    document.getElementById('diskPercent').textContent = stats.disk.percent + '%';
+                    document.getElementById('diskBar').style.width = stats.disk.percent + '%';
+                    document.getElementById('diskDetails').textContent = `${formatBytes(stats.disk.used)} / ${formatBytes(stats.disk.total)} (Free: ${formatBytes(stats.disk.free)})`;
+                }
+
                 if (recordings.length === 0) {
                     listEl.innerHTML = `
                         <div class="empty-state">
@@ -966,6 +1062,7 @@
             const name = document.getElementById('name').value;
             const duration = document.getElementById('duration').value;
             const bypassWarp = document.getElementById('recordingBypassWarp').checked;
+            const bypassProxy = document.getElementById('recordingBypassProxy').checked;
             const disableSSL = document.getElementById('recordingDisableSSL').checked;
 
             const startBtn = document.getElementById('startBtn');
@@ -975,6 +1072,7 @@
             try {
                 const body = { url, name: name || undefined, duration: duration ? parseInt(duration) : undefined };
                 if (bypassWarp) body.warp = 'off';
+                if (bypassProxy) body.proxy = 'off';
                 if (disableSSL) body.disable_ssl = '1';
                 const response = await fetch(`/api/recordings/start${getAuthParams()}`, {
                     method: 'POST',

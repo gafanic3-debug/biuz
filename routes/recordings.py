@@ -3,7 +3,9 @@ import logging
 import os
 from aiohttp import web
 import functools
+import shutil
 
+import config
 from config import check_password, APP_VERSION
 import config_store
 
@@ -53,10 +55,12 @@ def setup_recording_routes(app, recording_manager):
 
         status = request.query.get('status')
         recordings = recording_manager.get_all_recordings(status=status)
+        system_stats = config.get_system_stats()
 
         return web.json_response({
             "recordings": recordings,
-            "active_count": len([r for r in recordings if r.get('is_active')])
+            "active_count": len([r for r in recordings if r.get('is_active')]),
+            "system_stats": system_stats
         })
 
     async def handle_get_recording(request):
@@ -89,6 +93,21 @@ def setup_recording_routes(app, recording_manager):
 
         name = data.get('name')
         duration = data.get('duration')
+        warp = data.get('warp')
+        proxy = data.get('proxy')
+        disable_ssl = data.get('disable_ssl')
+
+        # Append configuration parameters as query params to the URL
+        from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode
+        parsed = urlparse(url)
+        qsl = parse_qsl(parsed.query)
+        if warp == 'off':
+            qsl.append(('warp', 'off'))
+        if proxy == 'off':
+            qsl.append(('proxy', 'off'))
+        if disable_ssl == '1':
+            qsl.append(('disable_ssl', '1'))
+        url = urlunparse((parsed.scheme, parsed.netloc, parsed.path, parsed.params, urlencode(qsl), parsed.fragment))
 
         if duration:
             try:

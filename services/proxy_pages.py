@@ -4,12 +4,12 @@ import urllib.parse
 import services.proxy_shared as _shared
 from services.proxy_shared import (
     logger, web, APP_VERSION, VERSION_MODE,
-    check_password, PlaylistBuilder, ClientSession, ClientTimeout,
+    check_password, get_client_ip, PlaylistBuilder, ClientSession, ClientTimeout,
     TCPConnector, ProxyConnector, get_connector_for_proxy, API_PASSWORD,
 )
 from extractors.registry import *
 import config_store
-from config import reload_config, clear_proxy_affinity
+from config import reload_config, clear_proxy_affinity, get_system_stats
 
 class HLSProxyPagesMixin:
 
@@ -524,7 +524,7 @@ class HLSProxyPagesMixin:
             urls_to_process = data.get("urls", [])
 
             # --- LOGGING RICHIESTO ---
-            client_ip = request.remote
+            client_ip = get_client_ip(request)
             exit_strategy = "IP del Server (Diretto)"
             if _shared.GLOBAL_PROXIES:
                 exit_strategy = (
@@ -556,6 +556,7 @@ class HLSProxyPagesMixin:
                 endpoint = item.get("endpoint", "/proxy/stream")
                 req_headers = item.get("request_headers", {})
                 bypass_warp = item.get("warp") == "off"
+                bypass_proxies = item.get("proxy") == "off"
 
                 # Costruisci query params
                 encoded_url = urllib.parse.quote(dest_url, safe="")
@@ -574,6 +575,10 @@ class HLSProxyPagesMixin:
                 # Aggiungi bypass warp se richiesto
                 if bypass_warp:
                     params.append("warp=off")
+
+                # Aggiungi bypass proxy se richiesto
+                if bypass_proxies:
+                    params.append("proxy=off")
 
                 # Costruisci URL finale
                 query_string = "&".join(params)
@@ -666,6 +671,8 @@ class HLSProxyPagesMixin:
         config["warp_status"] = await self.get_warp_status()
         config["warp_ip"] = getattr(self, '_warp_ip', '')
         config["available_extractors"] = self._get_available_extractors()
+        config["system_stats"] = get_system_stats()
+        config["active_streams"] = _shared.get_active_streams()
         return web.json_response(config)
 
     def _get_available_extractors(self):
@@ -691,7 +698,7 @@ class HLSProxyPagesMixin:
         allowed_keys = {
             "enable_warp", "warp_license_key",
             "global_proxies", "transport_routes", "extractor_proxies",
-            "warp_off_extractors", "warp_exclude_domains_custom",
+            "warp_off_extractors", "proxy_off_extractors", "warp_exclude_domains_custom", "proxy_exclude_domains",
             "mpd_mode", "dvr_enabled",
             "max_recording_duration", "recordings_retention_days",
             "enable_remuxing",
@@ -709,7 +716,7 @@ class HLSProxyPagesMixin:
             reload_config()
             clear_proxy_affinity()
             # Invalidate extractor cache if proxy/routing/WARP settings changed
-            if any(k in updates for k in ("global_proxies", "extractor_proxies", "transport_routes", "warp_off_extractors", "warp_exclude_domains_custom", "enable_warp")):
+            if any(k in updates for k in ("global_proxies", "extractor_proxies", "transport_routes", "warp_off_extractors", "proxy_off_extractors", "warp_exclude_domains_custom", "proxy_exclude_domains", "enable_warp")):
                 self.extractors.clear()
                 logger.info("Extractor cache cleared due to config change")
 

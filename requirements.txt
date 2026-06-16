@@ -15,3 +15,4 @@ cloudscraper
 brotli
 seleniumbase
 pyvirtualdisplay
+psutil

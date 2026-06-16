@@ -959,7 +959,7 @@
                     this.showToast('URL already in list', 'warning');
                     return;
                 }
-                this.urls.push({ url, sort: false, noProxy: false, nativeMpd: false, warp: false });
+                this.urls.push({ url, sort: false, noProxy: false, nativeMpd: false, warp: false, proxy: false });
                 this.elements.urlInput.value = '';
                 this.elements.urlInput.focus();
                 this.renderList();
@@ -1023,6 +1023,10 @@
                                 <input type="checkbox" data-opt="warp" data-index="${i}" ${item.warp ? 'checked' : ''}>
                                 Warp Off
                             </label>
+                            <label class="url-item-option ${item.proxy ? 'active' : ''}">
+                                <input type="checkbox" data-opt="proxy" data-index="${i}" ${item.proxy ? 'checked' : ''}>
+                                Proxy Off
+                            </label>
                         </div>
                     `;
                     el.querySelector('.url-item-remove').addEventListener('click', () => this.removeUrl(i));
@@ -1053,6 +1057,7 @@
                         let rawUrl = p.url;
                         let extraParams = '';
                         if (p.warp) extraParams += '&warp=off';
+                        if (p.proxy) extraParams += '&proxy=off';
                         const pw = this.elements.apiPassword.value.trim();
                         if (pw) extraParams += `&api_password=${encodeURIComponent(pw)}`;
                         const ck = rawUrl.match(/[?&]clearkey=([^&]+)/i);
@@ -1073,6 +1078,7 @@
                     if (p.noProxy) def += '|noproxy=true';
                     if (p.nativeMpd) def += '|native_mpd=true';
                     if (p.warp) def += '|warp=off';
+                    if (p.proxy) def += '|proxy=off';
                     return encodeURIComponent(def);
                 });
                 const urlString = encoded.join(';');

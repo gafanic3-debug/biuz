@@ -17,6 +17,11 @@ class Sports99Extractor(BaseExtractor):
         """Extract Sports99 stream URL."""
         logger.info(f"[Sports99] Extracting from: {url}")
 
+        # Rewrite expired credentials (streamsports99/vip) to active ones (cdnlivetv/free)
+        if "user=streamsports99" in url or "plan=vip" in url:
+            url = url.replace("user=streamsports99", "user=cdnlivetv").replace("plan=vip", "plan=free")
+            logger.info(f"[Sports99] Rewrote URL to: {url}")
+
         entry = "https://streamsports99.su"
         player_headers = {
             "User-Agent": self.base_headers["User-Agent"],
@@ -43,7 +48,40 @@ class Sports99Extractor(BaseExtractor):
             match = re.search(r'\("([^"]+)"\s*,\s*(\d+)\s*,\s*"([^"]+)"\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\)', html)
             
             if not match:
-                # Fallback: check if already unpacked in HTML
+                # Fallback 1: check new Base64 concatenation format
+                func_match = re.search(r'function\s+([a-zA-Z0-9_]+)\s*\(s\)\{s=s\.replace', html)
+                if func_match:
+                    func_name = func_match.group(1)
+                    vars_dict = dict(re.findall(r'(?:var|const|let)\s+([a-zA-Z0-9_]+)\s*=\s*\'([^\']*)\'', html))
+                    concat_pattern = rf'(?:var|const|let)\s+[a-zA-Z0-9_]+\s*=\s*({func_name}\([a-zA-Z0-9_]+\)(?:\s*\+\s*{func_name}\([a-zA-Z0-9_]+\))*)'
+                    concat_match = re.search(concat_pattern, html)
+                    if concat_match:
+                        expr = concat_match.group(1)
+                        var_names = re.findall(rf'{func_name}\(([a-zA-Z0-9_]+)\)', expr)
+                        
+                        def decode_val(s):
+                            s = s.replace('-', '+').replace('_', '/')
+                            while len(s) % 4:
+                                s += '='
+                            try:
+                                decoded = base64.b64decode(s)
+                                try:
+                                    return decoded.decode('utf-8')
+                                except:
+                                    return decoded.decode('latin-1')
+                            except:
+                                return s
+
+                        stream_url = "".join(decode_val(vars_dict.get(vn, "")) for vn in var_names)
+                        if "playlist.m3u8" in stream_url:
+                            logger.info(f"[Sports99] Extracted stream URL via base64 concatenation: {stream_url}")
+                            return {
+                                "destination_url": stream_url,
+                                "request_headers": stream_headers,
+                                "mediaflow_endpoint": self.mediaflow_endpoint,
+                            }
+
+                # Fallback 2: check if already unpacked in HTML
                 if "playlist.m3u8" in html:
                     m3u8_match = re.search(r'["\'](https?://[^"\']+\.m3u8[^"\']*)["\']', html)
                     if m3u8_match:

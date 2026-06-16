@@ -733,6 +733,8 @@ class HLSProxyCoreMixin:
         # ✅ FIX: Decodifica il proxy se è URL-encoded
         if forced_proxy:
             forced_proxy = urllib.parse.unquote(forced_proxy)
+            if forced_proxy.lower() == "off":
+                forced_proxy = None
 
         proxy = forced_proxy or get_proxy_for_url(url, bypass_warp=bypass_warp)
 

@@ -30,6 +30,8 @@ DEFAULT_CONFIG = {
     "transport_routes": [],
     "extractor_proxies": {},
     "warp_off_extractors": [],
+    "proxy_off_extractors": [],
+    "proxy_exclude_domains": [],
     "mpd_mode": "legacy",
     "dvr_enabled": False,
     "recordings_dir": "/data/recordings",

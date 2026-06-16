@@ -1,4 +1,5 @@
 import os
+import shutil
 import logging
 import random
 import socket
@@ -57,6 +58,7 @@ def _read_proxy_source(source: str) -> list:
 
 # ContextVar for thread-safe/async-safe warp bypass state
 BYPASS_WARP_CONTEXT = contextvars.ContextVar("bypass_warp", default=False)
+BYPASS_PROXIES_CONTEXT = contextvars.ContextVar("bypass_proxies", default=False)
 SELECTED_PROXY_CONTEXT = contextvars.ContextVar("selected_proxy", default=None)
 STRICT_PROXY_CONTEXT = contextvars.ContextVar("strict_proxy", default=False)
 PROXY_SOURCE_LIST = contextvars.ContextVar("proxy_source_list", default=None)
@@ -118,7 +120,7 @@ def get_preferred_proxy(proxies: list | None) -> str | None:
 
 
 async def find_first_alive_async(proxies: list, concurrency: int | None = None) -> str | None:
-    """Test proxies in parallel with ThreadPoolExecutor, return first alive. Respects strict flag."""
+    """Test proxies in priority order with a staggered start, returning the highest-priority alive proxy."""
     if not proxies:
         return None
     if getattr(proxies, "strict", False):
@@ -130,27 +132,63 @@ async def find_first_alive_async(proxies: list, concurrency: int | None = None) 
         proxies = [p for p in proxies if p not in DEAD_PROXIES or now >= DEAD_PROXIES.get(p, 0)]
     if not proxies:
         return None
-    sem = asyncio.Semaphore(concurrency)
+    
     loop = asyncio.get_event_loop()
-
-    async def _check(proxy: str) -> str | None:
-        async with sem:
+    tasks = []
+    
+    for i, p in enumerate(proxies):
+        if not p:
+            continue
+            
+        async def _check_single(proxy_url=p, idx=i):
             try:
-                await loop.run_in_executor(None, _socket_check, proxy, 5)
-                return proxy
+                await loop.run_in_executor(None, _socket_check, proxy_url, 3)
+                return idx, proxy_url
             except (OSError, socket.timeout):
-                return None
+                return idx, None
 
-    tasks = {asyncio.create_task(_check(p)): p for p in proxies if p}
-    pending = set(tasks.keys())
-    while pending:
-        done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
-        for t in done:
-            result = t.result()
-            if result is not None:
-                for pt in pending:
-                    pt.cancel()
-                return result
+        t = asyncio.create_task(_check_single())
+        tasks.append(t)
+        
+        # Wait up to 250ms to give higher-priority proxies a head start to complete
+        start_time = time.time()
+        succeeded_high_priority = False
+        while time.time() - start_time < 0.25:
+            done_tasks = [tk for tk in tasks if tk.done()]
+            results = []
+            for tk in done_tasks:
+                res_idx, res_val = tk.result()
+                if res_val is not None:
+                    results.append((res_idx, res_val))
+            if results:
+                results.sort(key=lambda x: x[0])
+                best_idx, best_proxy = results[0]
+                if best_idx == 0:
+                    succeeded_high_priority = True
+                    break
+            await asyncio.sleep(0.02)
+            
+        if succeeded_high_priority:
+            break
+
+    # Gather all launched tasks
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    succeeded = []
+    for r in results:
+        if isinstance(r, tuple):
+            idx, res = r
+            if res is not None:
+                succeeded.append((idx, res))
+                
+    # Cancel any remaining pending tasks
+    for t in tasks:
+        if not t.done():
+            t.cancel()
+
+    if succeeded:
+        succeeded.sort(key=lambda x: x[0])
+        return succeeded[0][1]
+        
     return None
 
 
@@ -219,6 +257,19 @@ def _is_warp_excluded(url: str) -> bool:
             return True
     return False
 
+def _get_dynamic_proxy_exclude_domains() -> list:
+    return _cfg_get("proxy_exclude_domains", [])
+
+def _is_proxy_excluded(url: str) -> bool:
+    if not url:
+        return False
+    normalized = url.lower()
+    for domain in PROXY_EXCLUDE_DOMAINS:
+        stripped = domain.lstrip("*.")
+        if stripped in normalized:
+            return True
+    return False
+
 def _get_dynamic_global_proxies() -> list:
     return _cfg_get("global_proxies", [])
 
@@ -237,8 +288,24 @@ def get_ordered_proxies_for_url(
     extractor_name: str = "",
     fallback_proxies: list | None = None,
     bypass_warp: bool | None = None,
+    bypass_proxies: bool | None = None,
 ) -> list[str]:
     """Build proxy priority: extractor-specific, TRANSPORT_ROUTES, fallback/global, WARP."""
+    if bypass_proxies is None:
+        bypass_proxies = BYPASS_PROXIES_CONTEXT.get() or _is_proxy_excluded(url or "")
+
+    _ENABLE_WARP = _get_dynamic_warp_enabled()
+    _WARP_PROXY_URL = WARP_PROXY_URL
+    
+    if bypass_proxies:
+        ordered = []
+        if bypass_warp is None:
+            bypass_warp = BYPASS_WARP_CONTEXT.get()
+        is_excluded = _is_warp_excluded(url or "")
+        if _ENABLE_WARP and not bypass_warp and not is_excluded:
+            ordered.append(_WARP_PROXY_URL)
+        return ProxyList(ordered, strict=False)
+
     ordered = []
 
     def build(candidates, strict: bool = False):
@@ -252,8 +319,6 @@ def get_ordered_proxies_for_url(
         if proxy and proxy not in ordered:
             ordered.append(proxy)
 
-    _ENABLE_WARP = _get_dynamic_warp_enabled()
-    _WARP_PROXY_URL = WARP_PROXY_URL
     _WARP_EXCLUDE_DOMAINS = _get_dynamic_warp_exclude_domains()
     _GLOBAL_PROXIES = _get_dynamic_global_proxies()
     _TRANSPORT_ROUTES = _get_dynamic_transport_routes()
@@ -434,6 +499,34 @@ def mark_proxy_dead(proxy_url: str, dead_duration: int = 300):
         logging.warning("WARP proxy %s failure observed; keeping it managed by socket health checks.", proxy_url)
         return
 
+    # If this is the only custom proxy configured in the system, do not mark it dead.
+    # We want to keep trying to use it on subsequent requests.
+    try:
+        global_proxies = _get_dynamic_global_proxies()
+        extractor_proxies = _cfg_get("extractor_proxies", {})
+        transport_routes = _get_dynamic_transport_routes()
+        
+        extractor_list = []
+        for val in extractor_proxies.values():
+            if isinstance(val, str):
+                extractor_list.append(val)
+            elif isinstance(val, list):
+                extractor_list.extend(val)
+                
+        transport_list = []
+        for route in transport_routes:
+            if isinstance(route, dict):
+                p_val = route.get("proxy")
+                if p_val:
+                    transport_list.append(p_val)
+                    
+        custom_pool = {p for p in (global_proxies + extractor_list + transport_list) if p}
+        if len(custom_pool) <= 1:
+            logging.info("Proxy %s failed, but it is the only custom proxy configured. Not marking dead.", proxy_url)
+            return
+    except Exception:
+        pass
+
     now = time.time()
     with _proxy_lock:
         DEAD_PROXIES[proxy_url] = now + dead_duration
@@ -473,16 +566,37 @@ def _next_from_source(current_proxy: str | None) -> str | None:
     return None
 
 
-def get_proxy_for_url(url: str, transport_routes: list = None, global_proxies: list = None, bypass_warp: bool = None) -> str:
+def get_proxy_for_url(
+    url: str,
+    transport_routes: list = None,
+    global_proxies: list = None,
+    bypass_warp: bool = None,
+    bypass_proxies: bool = None,
+) -> str:
     """Trova il proxy appropriato per un URL basato su TRANSPORT_ROUTES e impostazioni WARP.
     
     If transport_routes or global_proxies are None, reads from dynamic config_store.
     """
+    if bypass_proxies is None:
+        bypass_proxies = BYPASS_PROXIES_CONTEXT.get() or _is_proxy_excluded(url or "")
+
     if bypass_warp is None:
         bypass_warp = BYPASS_WARP_CONTEXT.get()
     
     _ENABLE_WARP = _get_dynamic_warp_enabled()
     _WARP_PROXY_URL = WARP_PROXY_URL
+
+    if bypass_proxies:
+        is_excluded = _is_warp_excluded(url) if url else False
+        if _ENABLE_WARP and not bypass_warp and not is_excluded:
+            warp_alive = is_proxy_alive(_WARP_PROXY_URL)
+            if warp_alive:
+                stream_key = _get_stream_key(url) if url else None
+                if stream_key:
+                    _proxy_affinity[stream_key] = (_WARP_PROXY_URL, time.time())
+                return _WARP_PROXY_URL
+        return None
+
     _WARP_EXCLUDE_DOMAINS = _get_dynamic_warp_exclude_domains()
     if transport_routes is None:
         transport_routes = _get_dynamic_transport_routes()
@@ -674,7 +788,7 @@ API_PASSWORD = os.environ.get("API_PASSWORD")
 PORT = int(os.environ.get("PORT", 7860))
 
 # --- Version/Mode Configuration ---
-APP_VERSION = "2.9.09"
+APP_VERSION = "2.9.15"
 
 _has_solvers = os.path.exists("flaresolverr")
 VERSION_MODE = "Full" if _has_solvers else "Light"
@@ -699,6 +813,36 @@ def check_password(request):
     return False
 
 
+def get_client_ip(request):
+    """Recupera l'IP reale del client, supportando Cloudflare e reverse proxy."""
+    # Cloudflare
+    cf_ip = request.headers.get("CF-Connecting-IP")
+    if cf_ip:
+        return cf_ip.strip()
+
+    # True-Client-IP (Cloudflare Enterprise / Akamai)
+    true_ip = request.headers.get("True-Client-IP")
+    if true_ip:
+        return true_ip.strip()
+
+    # X-Forwarded-For (standard per reverse proxy)
+    xff = request.headers.get("X-Forwarded-For")
+    if xff:
+        # Prende il primo IP della catena (quello originale del client)
+        parts = [p.strip() for p in xff.split(",")]
+        if parts and parts[0]:
+            return parts[0]
+
+    # X-Real-IP
+    real_ip = request.headers.get("X-Real-IP")
+    if real_ip:
+        return real_ip.strip()
+
+    # Fallback all'indirizzo remoto della richiesta aiohttp
+    return request.remote
+
+
+
 def reload_config():
     """Re-reads dynamic config from config_store.json into module-level names for backward compat."""
     # This is called after config_store changes to update module globals
@@ -706,6 +850,7 @@ def reload_config():
     mod = sys.modules[__name__]
     mod.ENABLE_WARP = _get_dynamic_warp_enabled()
     mod.WARP_EXCLUDE_DOMAINS = _get_dynamic_warp_exclude_domains()
+    mod.PROXY_EXCLUDE_DOMAINS = _get_dynamic_proxy_exclude_domains()
     mod.GLOBAL_PROXIES = _get_dynamic_global_proxies()
     mod.TRANSPORT_ROUTES = _get_dynamic_transport_routes()
     mod.MPD_MODE = _cfg_get("mpd_mode", "legacy")
@@ -740,6 +885,7 @@ def __getattr__(name):
     _dynamic_attrs = {
         "ENABLE_WARP": _get_dynamic_warp_enabled,
         "WARP_EXCLUDE_DOMAINS": _get_dynamic_warp_exclude_domains,
+        "PROXY_EXCLUDE_DOMAINS": _get_dynamic_proxy_exclude_domains,
         "GLOBAL_PROXIES": _get_dynamic_global_proxies,
         "TRANSPORT_ROUTES": _get_dynamic_transport_routes,
         "MPD_MODE": lambda: _cfg_get("mpd_mode", "legacy"),
@@ -760,3 +906,104 @@ def __getattr__(name):
     if getter:
         return getter()
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def get_system_stats():
+    # Disk Usage
+    rec_dir = _cfg_get("recordings_dir", "/data/recordings")
+    try:
+        os.makedirs(rec_dir, exist_ok=True)
+        disk_total, disk_used, disk_free = shutil.disk_usage(rec_dir)
+        disk_percent = (disk_used / disk_total) * 100 if disk_total > 0 else 0
+    except Exception as e:
+        logger.warning(f"Error getting disk usage: {e}")
+        disk_total, disk_used, disk_free, disk_percent = 0, 0, 0, 0
+
+    # CPU & RAM Usage (using psutil with fallback)
+    cpu_percent = 0.0
+    ram_percent = 0.0
+    ram_total = 0
+    ram_used = 0
+    ram_free = 0
+    
+    # Check if we are running inside Docker and have cgroup memory limits
+    docker_used, docker_limit = None, None
+    try:
+        # cgroup v2 (Unified Hierarchy)
+        if os.path.exists("/sys/fs/cgroup/memory.max") and os.path.exists("/sys/fs/cgroup/memory.current"):
+            with open("/sys/fs/cgroup/memory.max", "r") as f:
+                val = f.read().strip()
+                if val != "max":
+                    docker_limit = int(val)
+            with open("/sys/fs/cgroup/memory.current", "r") as f:
+                docker_used = int(f.read().strip())
+        # cgroup v1 (Legacy Hierarchy)
+        elif os.path.exists("/sys/fs/cgroup/memory/memory.limit_in_bytes") and os.path.exists("/sys/fs/cgroup/memory/memory.usage_in_bytes"):
+            with open("/sys/fs/cgroup/memory/memory.limit_in_bytes", "r") as f:
+                docker_limit = int(f.read().strip())
+            with open("/sys/fs/cgroup/memory/memory.usage_in_bytes", "r") as f:
+                docker_used = int(f.read().strip())
+        
+        # Verify container limits are not infinite/max value (like 9223372036854771712 or 9223372036854775807)
+        if docker_limit and docker_limit > 9000000000000000000:
+            docker_limit = None
+    except Exception:
+        pass
+
+    try:
+        import psutil
+        cpu_percent = psutil.cpu_percent()
+        mem = psutil.virtual_memory()
+        ram_total = mem.total
+        ram_used = mem.used
+        ram_free = mem.available
+        ram_percent = mem.percent
+    except Exception as e:
+        logger.debug(f"psutil not available or error: {e}")
+        try:
+            if os.path.exists("/proc/meminfo"):
+                meminfo = {}
+                with open("/proc/meminfo", "r") as f:
+                    for line in f:
+                        parts = line.split()
+                        if len(parts) >= 2:
+                            meminfo[parts[0].replace(":", "")] = int(parts[1]) * 1024
+                ram_total = meminfo.get("MemTotal", 0)
+                ram_free = meminfo.get("MemAvailable", meminfo.get("MemFree", 0))
+                ram_used = ram_total - ram_free
+                ram_percent = (ram_used / ram_total) * 100 if ram_total > 0 else 0
+            
+            if os.path.exists("/proc/loadavg"):
+                with open("/proc/loadavg", "r") as f:
+                    load = f.readline().split()
+                    cpu_percent = float(load[0]) * 100 / (os.cpu_count() or 1)
+                    if cpu_percent > 100.0:
+                        cpu_percent = 100.0
+        except Exception:
+            pass
+
+    # Apply Docker container cgroup limits if valid
+    if docker_used is not None and docker_limit is not None:
+        ram_total = docker_limit
+        ram_used = docker_used
+        ram_free = max(0, docker_limit - docker_used)
+        ram_percent = (ram_used / ram_total) * 100 if ram_total > 0 else 0
+
+    return {
+        "disk": {
+            "total": disk_total,
+            "used": disk_used,
+            "free": disk_free,
+            "percent": round(disk_percent, 1)
+        },
+        "cpu": {
+            "percent": round(cpu_percent, 1)
+        },
+        "ram": {
+            "total": ram_total,
+            "used": ram_used,
+            "free": ram_free,
+            "percent": round(ram_percent, 1)
+        }
+    }
+

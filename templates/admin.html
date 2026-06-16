@@ -124,6 +124,61 @@
             background: var(--surface-elevated);
         }
         .card:hover::after { transform: scaleX(1); }
+        .progress-bar-container {
+            width: 100%;
+            background: rgba(255, 255, 255, 0.08);
+            border-radius: 6px;
+            height: 6px;
+            margin-top: 8px;
+            overflow: hidden;
+        }
+        .progress-bar {
+            height: 100%;
+            background: var(--primary-gradient);
+            width: 0%;
+            transition: width 0.4s ease;
+        }
+        .resource-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 1.5rem;
+            margin-top: 0.5rem;
+        }
+        .resource-item {
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            background: rgba(255,255,255,0.02);
+            padding: 1rem;
+            border-radius: 12px;
+            border: 1px solid var(--border-primary);
+        }
+        .resource-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+        }
+        .resource-name {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .resource-val {
+            font-size: 1.25rem;
+            font-weight: 800;
+            background: var(--primary-gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .resource-details {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            margin-top: 6px;
+            text-align: right;
+        }
         .card h2 {
             font-size: 1rem; font-weight: 700; margin-bottom: 1.25rem;
             display: flex; align-items: center; gap: 8px;
@@ -315,6 +370,42 @@
     <div id="toast" class="toast"></div>
 
     <div class="grid-2">
+        <!-- System resources -->
+        <div class="card card-wide">
+            <h2><span class="icon">📊</span> System Resources</h2>
+            <div class="resource-grid">
+                <div class="resource-item">
+                    <div class="resource-header">
+                        <div class="resource-name">CPU Usage</div>
+                        <div class="resource-val" id="cpu-percent">0%</div>
+                    </div>
+                    <div class="progress-bar-container">
+                        <div class="progress-bar" id="cpu-bar"></div>
+                    </div>
+                </div>
+                <div class="resource-item">
+                    <div class="resource-header">
+                        <div class="resource-name">RAM Usage</div>
+                        <div class="resource-val" id="ram-percent">0%</div>
+                    </div>
+                    <div class="progress-bar-container">
+                        <div class="progress-bar" id="ram-bar"></div>
+                    </div>
+                    <div class="resource-details" id="ram-details">0 / 0</div>
+                </div>
+                <div class="resource-item">
+                    <div class="resource-header">
+                        <div class="resource-name">Disk Space (DVR)</div>
+                        <div class="resource-val" id="disk-percent">0%</div>
+                    </div>
+                    <div class="progress-bar-container">
+                        <div class="progress-bar" id="disk-bar"></div>
+                    </div>
+                    <div class="resource-details" id="disk-details">0 / 0 (Free: 0)</div>
+                </div>
+            </div>
+        </div>
+
         <!-- WARP -->
         <div class="card">
             <h2><span class="icon">🌐</span> Cloudflare WARP <span id="warp-status" class="status" style="margin:0;font-size:0.75rem">Checking...</span> <span id="warp-ip" style="font-size:0.7rem;color:var(--text-muted);font-weight:400"></span></h2>
@@ -361,6 +452,13 @@
             <div id="warp-off-list" style="display:flex;flex-wrap:wrap;gap:6px"></div>
         </div>
 
+        <!-- Proxy Off per Extractor -->
+        <div class="card card-wide">
+            <h2><span class="icon">🚫</span> Proxy Off per Extractor</h2>
+            <p class="help-text">Toggle custom proxies off for specific extractors (they will bypass all custom proxies and use WARP/Direct)</p>
+            <div id="proxy-off-list" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+        </div>
+
         <!-- WARP Exclude Domains -->
         <div class="card card-wide">
             <h2><span class="icon">🚫</span> WARP Exclude Domains</h2>
@@ -369,6 +467,17 @@
             <div class="add-row" style="margin-top:12px">
                 <input type="text" id="new-exclude-domain" placeholder="e.g. example.com or *.example.com" onkeydown="if(event.key==='Enter')addExcludeDomain()">
                 <button class="btn btn-primary btn-sm" onclick="addExcludeDomain()">+ Add</button>
+            </div>
+        </div>
+
+        <!-- Proxy Exclude Domains -->
+        <div class="card card-wide">
+            <h2><span class="icon">🚫</span> Proxy Exclude Domains</h2>
+            <p class="help-text">Domains that bypass all custom proxies. Add your custom domains here (they will run via WARP/Direct instead).</p>
+            <div id="proxy-exclude-domains-list"></div>
+            <div class="add-row" style="margin-top:12px">
+                <input type="text" id="new-proxy-exclude-domain" placeholder="e.g. example.com or *.example.com" onkeydown="if(event.key==='Enter')addProxyExcludeDomain()">
+                <button class="btn btn-primary btn-sm" onclick="addProxyExcludeDomain()">+ Add</button>
             </div>
         </div>
 
@@ -448,6 +557,28 @@
                 </select>
             </div>
         </div>
+
+        <!-- Active Streams -->
+        <div class="card card-wide">
+            <h2><span class="icon">📡</span> Active Connections <span id="active-streams-count" class="status connected" style="margin:0 0 0 8px;font-size:0.7rem;display:none;padding:2px 8px">0 active</span></h2>
+            <p class="help-text">Devices currently streaming or downloading segments via the proxy</p>
+            <div style="margin-top:12px;overflow-x:auto;border:1px solid var(--border-primary);border-radius:10px;background:rgba(255,255,255,0.01)">
+                <table style="width:100%;border-collapse:collapse;text-align:left;font-size:0.8rem">
+                    <thead>
+                        <tr style="border-bottom:1px solid var(--border-primary);color:var(--text-secondary);background:rgba(255,255,255,0.02)">
+                            <th style="padding:12px 16px">Client IP</th>
+                            <th style="padding:12px 16px">Active Stream / Manifest URL</th>
+                            <th style="padding:12px 16px;text-align:right">Last Request</th>
+                        </tr>
+                    </thead>
+                    <tbody id="active-streams-list">
+                        <tr>
+                            <td colspan="3" style="padding:24px;text-align:center;color:var(--text-muted)">No active streams</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -456,6 +587,43 @@ let config = {};
 let extractorProxies = {};
 let sslOff = false;
 let extractorProxyMode = 'proxy';
+
+function formatBytes(bytes, decimals = 2) {
+    if (!bytes || bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const dm = decimals < 0 ? 0 : decimals;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+}
+
+function renderActiveStreams(streams) {
+    const streamsList = document.getElementById('active-streams-list');
+    const streamsCount = document.getElementById('active-streams-count');
+    const items = streams || [];
+    
+    if (items.length > 0) {
+        streamsCount.style.display = 'inline-block';
+        streamsCount.textContent = `${items.length} active`;
+        streamsList.innerHTML = items.map(s => {
+            const elapsed = s.elapsed_since_active;
+            const elapsedText = elapsed <= 0 ? 'just now' : `${elapsed}s ago`;
+            return `<tr style="border-bottom: 1px solid var(--border-primary); transition: background 0.15s;" onmouseover="this.style.background='rgba(255,255,255,0.015)'" onmouseout="this.style.background='none'">
+                <td style="padding:12px 16px; font-weight:600; font-family:monospace;">${s.ip}</td>
+                <td style="padding:12px 16px; word-break:break-all;" title="${s.user_agent ? 'UA: ' + s.user_agent : ''}">
+                    <div style="max-height:60px; overflow:hidden; text-overflow:ellipsis;">${s.url}</div>
+                </td>
+                <td style="padding:12px 16px; text-align:right; color:var(--text-muted);">${elapsedText}</td>
+            </tr>`;
+        }).join('');
+    } else {
+        streamsCount.style.display = 'none';
+        streamsList.innerHTML = `<tr>
+            <td colspan="3" style="padding:24px;text-align:center;color:var(--text-muted)">No active streams</td>
+        </tr>`;
+    }
+}
+
 
 function toast(msg, type='success') {
     const t = document.getElementById('toast');
@@ -494,7 +662,9 @@ async function loadConfig() {
         renderExtractorProxies();
         populateExtractorSelect(config.available_extractors || []);
         renderWarpOffToggles(config.available_extractors || [], config.warp_off_extractors || []);
+        renderProxyOffToggles(config.available_extractors || [], config.proxy_off_extractors || []);
         renderExcludeDomains();
+        renderProxyExcludeDomains();
         document.getElementById('mpd-mode').value = config.mpd_mode || 'legacy';
         setToggle('remux-toggle', config.enable_remuxing !== false);
         setToggle('dvr-toggle', config.dvr_enabled || false);
@@ -504,6 +674,25 @@ async function loadConfig() {
         document.getElementById('segment-cache-ttl').value = config.segment_cache_ttl || 30;
         document.getElementById('proxy-test-concurrency').value = (config.proxy_test_concurrency != null ? config.proxy_test_concurrency : 30);
         document.getElementById('log-level').value = config.log_level || 'WARNING';
+
+        // Update system resources
+        if (config.system_stats) {
+            const stats = config.system_stats;
+            
+            document.getElementById('cpu-percent').textContent = stats.cpu.percent + '%';
+            document.getElementById('cpu-bar').style.width = stats.cpu.percent + '%';
+            
+            document.getElementById('ram-percent').textContent = stats.ram.percent + '%';
+            document.getElementById('ram-bar').style.width = stats.ram.percent + '%';
+            document.getElementById('ram-details').textContent = `${formatBytes(stats.ram.used)} / ${formatBytes(stats.ram.total)}`;
+            
+            document.getElementById('disk-percent').textContent = stats.disk.percent + '%';
+            document.getElementById('disk-bar').style.width = stats.disk.percent + '%';
+            document.getElementById('disk-details').textContent = `${formatBytes(stats.disk.used)} / ${formatBytes(stats.disk.total)} (Free: ${formatBytes(stats.disk.free)})`;
+        }
+
+        renderActiveStreams(config.active_streams);
+
     } catch(e) {
         toast('Error loading config: ' + e.message, 'error');
     }
@@ -561,6 +750,29 @@ function renderWarpOffToggles(available, warpOffList) {
             await saveField('warp_off_extractors', newList);
             config.warp_off_extractors = newList;
             renderWarpOffToggles(available, newList);
+        };
+        container.appendChild(btn);
+    }
+}
+
+function renderProxyOffToggles(available, proxyOffList) {
+    const container = document.getElementById('proxy-off-list');
+    container.innerHTML = '';
+    for (const name of available) {
+        const isOff = proxyOffList.includes(name);
+        const btn = document.createElement('span');
+        btn.className = 'warp-off-chip' + (isOff ? ' off' : '');
+        btn.textContent = name + (isOff ? ' 🚫' : ' ✅');
+        btn.onclick = async () => {
+            let newList;
+            if (proxyOffList.includes(name)) {
+                newList = proxyOffList.filter(x => x !== name);
+            } else {
+                newList = [...proxyOffList, name];
+            }
+            await saveField('proxy_off_extractors', newList);
+            config.proxy_off_extractors = newList;
+            renderProxyOffToggles(available, newList);
         };
         container.appendChild(btn);
     }
@@ -914,7 +1126,75 @@ async function removeExcludeDomain(domain) {
     renderExcludeDomains();
 }
 
+function renderProxyExcludeDomains() {
+    const custom = config.proxy_exclude_domains || [];
+    const container = document.getElementById('proxy-exclude-domains-list');
+    container.innerHTML = '';
+    if (custom.length === 0) {
+        container.innerHTML = '<div style="color:var(--text-muted);font-size:0.8rem;padding:8px">No custom domains added</div>';
+        return;
+    }
+    for (const domain of custom) {
+        const div = document.createElement('div');
+        div.className = 'extractor-row';
+        div.innerHTML = `<span>${domain}</span><button class="btn btn-danger btn-sm" onclick="removeProxyExcludeDomain('${domain}')">✕</button>`;
+        container.appendChild(div);
+    }
+}
+
+async function addProxyExcludeDomain() {
+    const input = document.getElementById('new-proxy-exclude-domain');
+    const val = input.value.trim();
+    if (!val) return;
+    const custom = [...(config.proxy_exclude_domains || [])];
+    if (!custom.includes(val)) {
+        custom.push(val);
+        await saveField('proxy_exclude_domains', custom);
+        config.proxy_exclude_domains = custom;
+        renderProxyExcludeDomains();
+    }
+    input.value = '';
+    input.focus();
+}
+
+async function removeProxyExcludeDomain(domain) {
+    let custom = [...(config.proxy_exclude_domains || [])];
+    custom = custom.filter(d => d !== domain);
+    await saveField('proxy_exclude_domains', custom);
+    config.proxy_exclude_domains = custom;
+    renderProxyExcludeDomains();
+}
+
 loadConfig();
+
+// Poll system resources every 5 seconds
+setInterval(async () => {
+    const params = new URLSearchParams(window.location.search);
+    const pw = params.get('api_password');
+    const url = '/api/admin/config' + (pw ? '?api_password=' + pw : '');
+    try {
+        const resp = await fetch(url);
+        if (resp.ok) {
+            const tempConfig = await resp.json();
+            if (tempConfig.system_stats) {
+                const stats = tempConfig.system_stats;
+                document.getElementById('cpu-percent').textContent = stats.cpu.percent + '%';
+                document.getElementById('cpu-bar').style.width = stats.cpu.percent + '%';
+                
+                document.getElementById('ram-percent').textContent = stats.ram.percent + '%';
+                document.getElementById('ram-bar').style.width = stats.ram.percent + '%';
+                document.getElementById('ram-details').textContent = `${formatBytes(stats.ram.used)} / ${formatBytes(stats.ram.total)}`;
+                
+                document.getElementById('disk-percent').textContent = stats.disk.percent + '%';
+                document.getElementById('disk-bar').style.width = stats.disk.percent + '%';
+                document.getElementById('disk-details').textContent = `${formatBytes(stats.disk.used)} / ${formatBytes(stats.disk.total)} (Free: ${formatBytes(stats.disk.free)})`;
+            }
+            renderActiveStreams(tempConfig.active_streams);
+        }
+    } catch (e) {
+        // Silently ignore
+    }
+}, 5000);
 </script>
 </body>
 </html>
