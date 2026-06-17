@@ -179,6 +179,38 @@
             margin-top: 6px;
             text-align: right;
         }
+        .speedtest-row {
+            grid-column: 1 / -1;
+            flex-direction: row;
+            align-items: stretch;
+            gap: 1.5rem;
+        }
+        .speedtest-info {
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            flex: 0 0 auto;
+            min-width: 180px;
+        }
+        .speedtest-results {
+            flex: 1 1 auto;
+            min-width: 0;
+        }
+        .speedtest-results > div { display: flex; gap: 8px; flex-wrap: wrap; align-items: stretch; }
+        .speedtest-card {
+            flex: 1 1 0;
+            min-width: 0;
+            padding: 8px 10px;
+            background: var(--surface-glass);
+            border: 1px solid var(--border-primary);
+            border-radius: 8px;
+            overflow-wrap: anywhere;
+            word-break: break-all;
+        }
+        .speedtest-card.error {
+            background: rgba(255,0,0,0.05);
+            border-color: rgba(255,0,0,0.2);
+        }
         .card h2 {
             font-size: 1rem; font-weight: 700; margin-bottom: 1.25rem;
             display: flex; align-items: center; gap: 8px;
@@ -288,6 +320,8 @@
             .row { flex-direction: column; align-items: stretch; }
             label { min-width: auto; }
             .container { padding: 1rem; }
+            .speedtest-row { flex-direction: column; gap: 1rem; }
+            .speedtest-info { min-width: auto; }
         }
         ::-webkit-scrollbar { width: 8px; }
         ::-webkit-scrollbar-track { background: var(--bg-secondary); }
@@ -376,7 +410,7 @@
             <div class="resource-grid">
                 <div class="resource-item">
                     <div class="resource-header">
-                        <div class="resource-name">CPU Usage</div>
+                        <div class="resource-name">CPU Usage (EasyProxy)</div>
                         <div class="resource-val" id="cpu-percent">0%</div>
                     </div>
                     <div class="progress-bar-container">
@@ -385,7 +419,7 @@
                 </div>
                 <div class="resource-item">
                     <div class="resource-header">
-                        <div class="resource-name">RAM Usage</div>
+                        <div class="resource-name">RAM Usage (EasyProxy)</div>
                         <div class="resource-val" id="ram-percent">0%</div>
                     </div>
                     <div class="progress-bar-container">
@@ -395,13 +429,29 @@
                 </div>
                 <div class="resource-item">
                     <div class="resource-header">
-                        <div class="resource-name">Disk Space (DVR)</div>
+                        <div class="resource-name">Disk Space (System)</div>
                         <div class="resource-val" id="disk-percent">0%</div>
                     </div>
                     <div class="progress-bar-container">
                         <div class="progress-bar" id="disk-bar"></div>
                     </div>
                     <div class="resource-details" id="disk-details">0 / 0 (Free: 0)</div>
+                </div>
+                <div class="resource-item speedtest-row">
+                    <div class="speedtest-info">
+                        <div class="resource-header" style="flex-direction:column;align-items:flex-start;gap:2px">
+                            <div class="resource-name">Network Speed (System)</div>
+                            <div class="resource-val" id="net-speed" style="font-size:0.85rem">—</div>
+                        </div>
+                        <div style="display:flex;gap:1rem;margin-top:4px;font-size:0.75rem;color:var(--text-muted)">
+                            <span>⬇ <span id="net-down">0 B/s</span></span>
+                            <span>⬆ <span id="net-up">0 B/s</span></span>
+                        </div>
+                        <div style="margin-top:8px">
+                            <button class="btn btn-primary btn-sm" onclick="runAllSpeedtests()" id="speedtest-btn">🚀 Run Speed Tests</button>
+                        </div>
+                    </div>
+                    <div id="speedtest-result" class="speedtest-results" style="display:none;font-size:0.75rem"></div>
                 </div>
             </div>
         </div>
@@ -589,12 +639,58 @@ let sslOff = false;
 let extractorProxyMode = 'proxy';
 
 function formatBytes(bytes, decimals = 2) {
-    if (!bytes || bytes === 0) return '0 Bytes';
+    if (!bytes || bytes === 0) return '0 B';
     const k = 1024;
     const dm = decimals < 0 ? 0 : decimals;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+}
+
+function formatSpeed(bytesPerSec) {
+    if (!bytesPerSec || bytesPerSec <= 0) return '0 B/s';
+    const k = 1024;
+    const sizes = ['B/s', 'KB/s', 'MB/s', 'GB/s'];
+    const i = Math.min(Math.floor(Math.log(bytesPerSec) / Math.log(k)), sizes.length - 1);
+    return parseFloat((bytesPerSec / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
+function updateSpeedtestButtons(cfg) {
+    // No-op: single button, always enabled
+}
+
+async function runAllSpeedtests() {
+    const btn = document.getElementById('speedtest-btn');
+    const result = document.getElementById('speedtest-result');
+    btn.disabled = true;
+    btn.innerHTML = '⏳ Running...';
+    result.style.display = 'block';
+    result.innerHTML = 'Running speed tests...';
+    try {
+        const resp = await fetch('/api/admin/speedtest', { method: 'POST' });
+        const data = await resp.json();
+        if (data.error) { result.innerHTML = '❌ ' + data.error; return; }
+        result.innerHTML = '<div>' + data.results.map(function(r) {
+            if (r.error) {
+                return '<div class="speedtest-card error">' +
+                    '<div style="font-weight:600;font-size:0.8rem;margin-bottom:4px">' + r.name + '</div>' +
+                    '<div style="color:var(--accent-error);font-size:0.7rem">❌ ' + r.error.slice(0, 120) + '</div></div>';
+            }
+            return '<div class="speedtest-card">' +
+                '<div style="font-weight:600;font-size:0.8rem;margin-bottom:4px">' + r.name + '</div>' +
+                (r.proxy_used ? '<div style="font-size:0.65rem;color:var(--accent-orange);margin-bottom:2px">📡 ' + r.proxy_used + '</div>' : '') +
+                '<div style="font-size:0.65rem;color:var(--text-muted);margin-bottom:4px">' + (r.server.sponsor && r.server.sponsor !== 'Unknown' ? r.server.sponsor + ' · ' : '') + r.server.location + '</div>' +
+                '<div style="display:flex;justify-content:space-between;padding:2px 0;font-size:0.75rem"><span style="color:var(--text-muted)">Ping</span><span style="color:var(--accent-primary)">' + r.ping_ms + ' ms</span></div>' +
+                '<div style="display:flex;justify-content:space-between;padding:2px 0;font-size:0.75rem"><span style="color:var(--text-muted)">⬇ Download</span><span style="color:var(--accent-success);font-weight:700">' + r.download_mbps + ' Mbps</span></div>' +
+                '<div style="display:flex;justify-content:space-between;padding:2px 0;font-size:0.75rem"><span style="color:var(--text-muted)">⬆ Upload</span><span style="color:var(--accent-success);font-weight:700">' + r.upload_mbps + ' Mbps</span></div>' +
+            '</div>';
+        }).join('') + '</div>';
+    } catch (e) {
+        result.innerHTML = '❌ Error: ' + e.message;
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '🚀 Run Speed Tests';
+    }
 }
 
 function renderActiveStreams(streams) {
@@ -657,6 +753,7 @@ async function loadConfig() {
         document.getElementById('warp-ip').textContent = config.warp_ip ? '(' + config.warp_ip + ')' : '';
         document.getElementById('warp-license-key').value = config.warp_license_key || '';
         document.getElementById('global-proxy').value = (config.global_proxies || []).join(', ');
+        updateSpeedtestButtons(config);
         renderTransportRoutes();
         extractorProxies = config.extractor_proxies || {};
         renderExtractorProxies();
@@ -679,16 +776,24 @@ async function loadConfig() {
         if (config.system_stats) {
             const stats = config.system_stats;
             
-            document.getElementById('cpu-percent').textContent = stats.cpu.percent + '%';
-            document.getElementById('cpu-bar').style.width = stats.cpu.percent + '%';
+            document.getElementById('cpu-percent').textContent = stats.proxy_cpu.percent + '%';
+            document.getElementById('cpu-bar').style.width = stats.proxy_cpu.percent + '%';
             
-            document.getElementById('ram-percent').textContent = stats.ram.percent + '%';
-            document.getElementById('ram-bar').style.width = stats.ram.percent + '%';
-            document.getElementById('ram-details').textContent = `${formatBytes(stats.ram.used)} / ${formatBytes(stats.ram.total)}`;
+            document.getElementById('ram-percent').textContent = stats.proxy_ram.percent + '%';
+            document.getElementById('ram-bar').style.width = stats.proxy_ram.percent + '%';
+            document.getElementById('ram-details').textContent = `${formatBytes(stats.proxy_ram.used)} / ${formatBytes(stats.proxy_ram.total)}`;
             
             document.getElementById('disk-percent').textContent = stats.disk.percent + '%';
             document.getElementById('disk-bar').style.width = stats.disk.percent + '%';
             document.getElementById('disk-details').textContent = `${formatBytes(stats.disk.used)} / ${formatBytes(stats.disk.total)} (Free: ${formatBytes(stats.disk.free)})`;
+        }
+
+        // Network speed
+        if (config.system_stats && config.system_stats.net) {
+            const net = config.system_stats.net;
+            document.getElementById('net-down').textContent = formatSpeed(net.recv);
+            document.getElementById('net-up').textContent = formatSpeed(net.sent);
+            document.getElementById('net-speed').textContent = formatSpeed(net.recv + net.sent) + ' total';
         }
 
         renderActiveStreams(config.active_streams);
@@ -1178,18 +1283,25 @@ setInterval(async () => {
             const tempConfig = await resp.json();
             if (tempConfig.system_stats) {
                 const stats = tempConfig.system_stats;
-                document.getElementById('cpu-percent').textContent = stats.cpu.percent + '%';
-                document.getElementById('cpu-bar').style.width = stats.cpu.percent + '%';
+                document.getElementById('cpu-percent').textContent = stats.proxy_cpu.percent + '%';
+                document.getElementById('cpu-bar').style.width = stats.proxy_cpu.percent + '%';
                 
-                document.getElementById('ram-percent').textContent = stats.ram.percent + '%';
-                document.getElementById('ram-bar').style.width = stats.ram.percent + '%';
-                document.getElementById('ram-details').textContent = `${formatBytes(stats.ram.used)} / ${formatBytes(stats.ram.total)}`;
+                document.getElementById('ram-percent').textContent = stats.proxy_ram.percent + '%';
+                document.getElementById('ram-bar').style.width = stats.proxy_ram.percent + '%';
+                document.getElementById('ram-details').textContent = `${formatBytes(stats.proxy_ram.used)} / ${formatBytes(stats.proxy_ram.total)}`;
                 
                 document.getElementById('disk-percent').textContent = stats.disk.percent + '%';
                 document.getElementById('disk-bar').style.width = stats.disk.percent + '%';
                 document.getElementById('disk-details').textContent = `${formatBytes(stats.disk.used)} / ${formatBytes(stats.disk.total)} (Free: ${formatBytes(stats.disk.free)})`;
             }
+            if (tempConfig.system_stats && tempConfig.system_stats.net) {
+                const net = tempConfig.system_stats.net;
+                document.getElementById('net-down').textContent = formatSpeed(net.recv);
+                document.getElementById('net-up').textContent = formatSpeed(net.sent);
+                document.getElementById('net-speed').textContent = formatSpeed(net.recv + net.sent) + ' total';
+            }
             renderActiveStreams(tempConfig.active_streams);
+            updateSpeedtestButtons(tempConfig);
         }
     } catch (e) {
         // Silently ignore

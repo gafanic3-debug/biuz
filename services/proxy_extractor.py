@@ -294,6 +294,7 @@ class HLSProxyExtractorHandlerMixin:
                         no_bypass=no_bypass,
                         shorten_url_func=shorten_captured_manifest_url,
                         bypass_warp=bypass_warp,
+                        bypass_proxies=bypass_proxies,
                         disable_ssl=disable_ssl,
                         selected_proxy=selected_proxy,
                         force_direct=force_direct,

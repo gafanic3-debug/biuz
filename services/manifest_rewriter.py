@@ -25,6 +25,42 @@ class ManifestRewriter:
         return urllib.parse.urlunparse(parsed_url._replace(query=base_query))
 
     @staticmethod
+    def _required_hls_version(manifest_content: str) -> int:
+        """Compute the minimum HLS version required by the tags in the manifest."""
+        version = 3
+        m = re.search(r'#EXT-X-VERSION:(\d+)', manifest_content)
+        if m:
+            version = max(version, int(m.group(1)))
+        if '#EXT-X-MEDIA:' in manifest_content or \
+           '#EXT-X-I-FRAME-STREAM-INF:' in manifest_content or \
+           '#EXT-X-BYTERANGE' in manifest_content:
+            version = max(version, 4)
+        if '#EXT-X-MAP:' in manifest_content:
+            version = max(version, 6)
+        return version
+
+    @staticmethod
+    def _ensure_hls_version(manifest_content: str) -> str:
+        """Make sure the manifest has a correct #EXT-X-VERSION line after #EXTM3U."""
+        version = ManifestRewriter._required_hls_version(manifest_content)
+        lines = manifest_content.split("\n")
+        new_lines = []
+        has_version = False
+        for line in lines:
+            stripped = line.strip()
+            if stripped == "#EXTM3U":
+                new_lines.append(line)
+                new_lines.append(f"#EXT-X-VERSION:{version}")
+                continue
+            if stripped.startswith("#EXT-X-VERSION:"):
+                has_version = True
+                continue
+            new_lines.append(line)
+        if not new_lines:
+            return f"#EXTM3U\n#EXT-X-VERSION:{version}"
+        return "\n".join(new_lines)
+
+    @staticmethod
     def rewrite_mpd_native(
         manifest_content: str,
         mpd_url: str,
@@ -74,6 +110,7 @@ class ManifestRewriter:
         clearkey_param: str = None,
         api_password: str = None,
         bypass_warp: bool = False,
+        bypass_proxies: bool = False,
         disable_ssl: bool = False,
     ) -> str:
         """Riscrive i manifest MPD (DASH) per passare attraverso il proxy."""
@@ -109,6 +146,8 @@ class ManifestRewriter:
             
             if bypass_warp:
                 header_params += "&warp=off"
+            if bypass_proxies:
+                header_params += "&proxy=off"
 
             if disable_ssl:
                 header_params += "&disable_ssl=1"
@@ -255,6 +294,7 @@ class ManifestRewriter:
         no_bypass: bool = False,
         shorten_url_func=None,
         bypass_warp: bool = False,
+        bypass_proxies: bool = False,
         disable_ssl: bool = False,
         selected_proxy: str = None,
         force_direct: bool = False,
@@ -314,6 +354,8 @@ class ManifestRewriter:
             
             if bypass_warp:
                 header_params += "&warp=off"
+            if bypass_proxies:
+                header_params += "&proxy=off"
             
             if disable_ssl:
                 header_params += "&disable_ssl=1"
@@ -437,7 +479,7 @@ class ManifestRewriter:
             rewritten_lines.append(cleaned_inf)
             rewritten_lines.append(proxy_variant_url)
 
-            return "\n".join(rewritten_lines)
+            return ManifestRewriter._ensure_hls_version("\n".join(rewritten_lines))
 
         # --- Logica Standard ---
         header_params = "".join(
@@ -452,6 +494,8 @@ class ManifestRewriter:
         
         if bypass_warp:
             header_params += "&warp=off"
+        if bypass_proxies:
+            header_params += "&proxy=off"
         
         if disable_ssl:
             header_params += "&disable_ssl=1"
@@ -517,6 +561,8 @@ class ManifestRewriter:
                         proxy_key_url += f"&api_password={api_password}"
                     if bypass_warp:
                         proxy_key_url += "&warp=off"
+                    if bypass_proxies:
+                        proxy_key_url += "&proxy=off"
                     if disable_ssl:
                         proxy_key_url += "&disable_ssl=1"
                     if selected_proxy:
@@ -607,6 +653,8 @@ class ManifestRewriter:
                         proxy_key_url += f"&api_password={api_password}"
                     if bypass_warp:
                         proxy_key_url += "&warp=off"
+                    if bypass_proxies:
+                        proxy_key_url += "&proxy=off"
                     if disable_ssl:
                         proxy_key_url += "&disable_ssl=1"
 
@@ -689,4 +737,5 @@ class ManifestRewriter:
                 # Tutti gli altri tag (es. #EXTINF, #EXT-X-ENDLIST)
                 rewritten_lines.append(line)
 
-        return "\n".join(rewritten_lines)
+        return ManifestRewriter._ensure_hls_version("\n".join(rewritten_lines))
+

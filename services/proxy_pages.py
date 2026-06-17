@@ -1,9 +1,17 @@
 import os
 import json
+import time
+import asyncio
+import shutil
 import urllib.parse
+import urllib.request
+import platform
+import tarfile
+import zipfile
+import tempfile
 import services.proxy_shared as _shared
 from services.proxy_shared import (
-    logger, web, APP_VERSION, VERSION_MODE,
+    logger, web, APP_VERSION,
     check_password, get_client_ip, PlaylistBuilder, ClientSession, ClientTimeout,
     TCPConnector, ProxyConnector, get_connector_for_proxy, API_PASSWORD,
 )
@@ -96,7 +104,6 @@ class HLSProxyPagesMixin:
             is_outdated = self.latest_version not in ["Checking...", "Unknown", "Error", APP_VERSION]
             version_status_class = "outdated" if is_outdated else ""
 
-            html_content = html_content.replace("{{VERSION_MODE}}", VERSION_MODE)
             html_content = html_content.replace("{{APP_VERSION}}", APP_VERSION)
             html_content = html_content.replace("{{LATEST_VERSION}}", self.latest_version)
             html_content = html_content.replace("{{VERSION_STATUS_CLASS}}", version_status_class)
@@ -189,7 +196,6 @@ class HLSProxyPagesMixin:
             is_outdated = self.latest_version not in ["Checking...", "Unknown", "Error", APP_VERSION]
             version_status_class = "outdated" if is_outdated else ""
 
-            html_content = html_content.replace("{{VERSION_MODE}}", VERSION_MODE)
             html_content = html_content.replace("{{APP_VERSION}}", APP_VERSION)
             html_content = html_content.replace("{{LATEST_VERSION}}", self.latest_version)
             html_content = html_content.replace("{{VERSION_STATUS_CLASS}}", version_status_class)
@@ -230,7 +236,7 @@ class HLSProxyPagesMixin:
         info = {
             "proxy": "EasyProxy",
             "version": APP_VERSION,  # Aggiornata per supporto AES-128
-            "mode": VERSION_MODE,
+
             "status": "✅ Running",
             "features": [
                 "✅ Proxy HLS streams",
@@ -667,7 +673,6 @@ class HLSProxyPagesMixin:
         config = config_store.get_all()
         config["api_password_configured"] = bool(API_PASSWORD)
         config["app_version"] = APP_VERSION
-        config["version_mode"] = VERSION_MODE
         config["warp_status"] = await self.get_warp_status()
         config["warp_ip"] = getattr(self, '_warp_ip', '')
         config["available_extractors"] = self._get_available_extractors()
@@ -824,3 +829,144 @@ class HLSProxyPagesMixin:
         except Exception as e:
             logger.error(f"Config upload failed: {e}")
             return web.Response(status=500, text=f"Upload failed: {e}")
+
+    async def handle_admin_api_speedtest(self, request):
+        if not check_password(request):
+            return web.Response(status=401, text="Unauthorized")
+        try:
+            routes = [{"name": "Direct", "proxy": None}]
+            from config import WARP_PROXY_URL
+            if config_store.get("enable_warp", False):
+                routes.append({"name": "Via WARP", "proxy": WARP_PROXY_URL})
+            global_proxies = config_store.get("global_proxies", [])
+            if global_proxies:
+                routes.append({"name": "Via Proxy", "proxy": global_proxies[0]})
+            from concurrent.futures import ThreadPoolExecutor
+            loop = asyncio.get_event_loop()
+            with ThreadPoolExecutor(max_workers=len(routes)) as pool:
+                futures = [loop.run_in_executor(pool, self._run_speedtest, r["proxy"]) for r in routes]
+                results = await asyncio.gather(*futures, return_exceptions=True)
+            output = []
+            for i, r in enumerate(routes):
+                res = results[i]
+                if isinstance(res, Exception):
+                    output.append({"name": r["name"], "error": str(res)})
+                else:
+                    res["name"] = r["name"]
+                    output.append(res)
+            return web.json_response({"results": output})
+        except Exception as e:
+            logger.error(f"Speedtest failed: {e}")
+            return web.json_response({"error": str(e)}, status=500)
+
+    def _ensure_speedtest_exe(self):
+        import subprocess
+        import os as _os
+        import platform as _platform
+        home = _os.path.expanduser("~")
+        auto_install_paths = [
+            _os.path.join(_os.environ.get("LOCALAPPDATA", home), "OoklaSpeedtest", "speedtest.exe"),
+            _os.path.join(home, ".local", "share", "easyproxy", "bin", "speedtest"),
+        ]
+        system_paths = [
+            "/usr/local/bin/speedtest",
+            "/usr/bin/speedtest",
+            "speedtest.exe",
+            "speedtest",
+        ]
+        for p in auto_install_paths + system_paths:
+            if _os.path.exists(p):
+                return p
+        found = shutil.which("speedtest")
+        if found:
+            return found
+
+        # Auto-download Ookla Speedtest CLI
+        system = _platform.system().lower()
+        machine = _platform.machine().lower()
+        version = "1.2.0"
+        try:
+            if system in ("windows", "win32"):
+                url = f"https://install.speedtest.net/app/cli/ookla-speedtest-{version}-win64.zip"
+                install_dir = _os.path.dirname(auto_install_paths[0])
+                target = auto_install_paths[0]
+                member = "speedtest.exe"
+                archive_cls = zipfile.ZipFile
+                archive_mode = "r"
+            elif system == "linux":
+                arch_map = {"x86_64": "x86_64", "amd64": "x86_64", "aarch64": "aarch64", "arm64": "aarch64"}
+                arch = arch_map.get(machine)
+                if not arch:
+                    raise RuntimeError(f"Unsupported Linux architecture: {machine}")
+                url = f"https://install.speedtest.net/app/cli/ookla-speedtest-{version}-linux-{arch}.tgz"
+                install_dir = _os.path.dirname(auto_install_paths[1])
+                target = auto_install_paths[1]
+                member = "speedtest"
+                archive_cls = tarfile.open
+                archive_mode = "r:gz"
+            else:
+                raise RuntimeError(f"Auto-install not supported on {system}. Please install Ookla Speedtest CLI manually.")
+
+            _os.makedirs(install_dir, exist_ok=True)
+            suffix = ".zip" if system in ("windows", "win32") else ".tgz"
+            fd, tmp_path = tempfile.mkstemp(suffix=suffix)
+            _os.close(fd)
+            try:
+                urllib.request.urlretrieve(url, tmp_path)
+                with archive_cls(tmp_path, archive_mode) as archive:
+                    archive.extract(member, install_dir)
+                _os.chmod(target, 0o755)
+            finally:
+                if _os.path.exists(tmp_path):
+                    _os.remove(tmp_path)
+            return target
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to auto-install Speedtest CLI: {e}.\n"
+                "Install it manually:\n"
+                "  Windows: https://www.speedtest.net/apps/cli\n"
+                "  Linux: sudo apt install speedtest\n"
+                "  Docker: see Dockerfile"
+            )
+
+    def _run_speedtest(self, proxy_url=None):
+        import subprocess
+        import os as _os
+        exe = self._ensure_speedtest_exe()
+        try:
+            env = None
+            if proxy_url:
+                env = _os.environ.copy()
+                # Socks5h per WARP, HTTP per proxy normali
+                if "socks5" in proxy_url:
+                    env["ALL_PROXY"] = proxy_url
+                else:
+                    env["HTTPS_PROXY"] = proxy_url
+                    env["HTTP_PROXY"] = proxy_url
+            result = subprocess.run(
+                [exe, "--format", "json", "--accept-license", "--accept-gdpr"],
+                capture_output=True, text=True, timeout=60, env=env
+            )
+            if result.returncode != 0:
+                err = result.stderr
+                if "Network is unreachable" in err or "Cannot retrieve configuration" in err:
+                    if proxy_url:
+                        raise RuntimeError(f"Connection refused by proxy: {proxy_url}. Make sure WARP is connected or the proxy is reachable.")
+                    else:
+                        raise RuntimeError("No internet connection. Check your network.")
+                raise RuntimeError(f"Speedtest failed: {err.split('[')[-1].rstrip(']') if '[' in err else err[:100]}")
+            data = json.loads(result.stdout)
+            return {
+                "server": {
+                    "sponsor": data.get("server", {}).get("sponsor", "Unknown"),
+                    "name": data.get("server", {}).get("name", "Unknown"),
+                    "location": data.get("server", {}).get("location", "Unknown")
+                },
+                "download_mbps": round(data.get("download", {}).get("bandwidth", 0) * 8 / 1_000_000, 1),
+                "upload_mbps": round(data.get("upload", {}).get("bandwidth", 0) * 8 / 1_000_000, 1),
+                "ping_ms": round(data.get("ping", {}).get("latency", 0), 1)
+            }
+        except subprocess.TimeoutExpired:
+            raise RuntimeError("Speedtest timed out after 60 seconds")
+        except json.JSONDecodeError:
+            raise RuntimeError("Failed to parse speedtest output")

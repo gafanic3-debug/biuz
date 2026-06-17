@@ -10,9 +10,10 @@ import urllib.request
 from dotenv import load_dotenv
 from config_store import get as _cfg_get, set as _cfg_set, get_all as _cfg_get_all
 
+APP_VERSION = "2.9.22"
+
 _proxy_source_cache: dict[str, tuple[float, list]] = {}
 _PROXY_SOURCE_TTL = 600
-
 
 def get_extractor_proxies(extractor_name: str) -> list:
     """Returns proxies from config_store for the given extractor.
@@ -782,17 +783,8 @@ def get_ssl_setting_for_url(url: str, transport_routes: list = None) -> bool:
 
     return False
 
-
-
 API_PASSWORD = os.environ.get("API_PASSWORD")
 PORT = int(os.environ.get("PORT", 7860))
-
-# --- Version/Mode Configuration ---
-APP_VERSION = "2.9.15"
-
-_has_solvers = os.path.exists("flaresolverr")
-VERSION_MODE = "Full" if _has_solvers else "Light"
-
 
 def check_password(request):
     """Verifica la password API se impostata."""
@@ -950,6 +942,8 @@ def get_system_stats():
     except Exception:
         pass
 
+    net_sent = 0
+    net_recv = 0
     try:
         import psutil
         cpu_percent = psutil.cpu_percent()
@@ -958,6 +952,16 @@ def get_system_stats():
         ram_used = mem.used
         ram_free = mem.available
         ram_percent = mem.percent
+        net = psutil.net_io_counters()
+        _now = time.time()
+        _prev = getattr(get_system_stats, "_net_prev", None)
+        _prev_ts = getattr(get_system_stats, "_net_prev_ts", None)
+        if _prev and _prev_ts and _now - _prev_ts > 0:
+            dt = _now - _prev_ts
+            net_sent = max(0, (net.bytes_sent - _prev[0]) / dt)
+            net_recv = max(0, (net.bytes_recv - _prev[1]) / dt)
+        get_system_stats._net_prev = (net.bytes_sent, net.bytes_recv)
+        get_system_stats._net_prev_ts = _now
     except Exception as e:
         logger.debug(f"psutil not available or error: {e}")
         try:
@@ -989,6 +993,58 @@ def get_system_stats():
         ram_free = max(0, docker_limit - docker_used)
         ram_percent = (ram_used / ram_total) * 100 if ram_total > 0 else 0
 
+    # EasyProxy process RAM (including child processes like ffmpeg, chrome, etc.)
+    proxy_ram_used = ram_used
+    proxy_ram_total = ram_total
+    proxy_ram_percent = ram_percent
+    try:
+        proc = psutil.Process(os.getpid())
+        proxy_ram_used = proc.memory_info().rss
+        for child in proc.children(recursive=True):
+            try:
+                proxy_ram_used += child.memory_info().rss
+            except Exception:
+                pass
+        proxy_ram_total = ram_total
+        proxy_ram_percent = (proxy_ram_used / proxy_ram_total) * 100 if proxy_ram_total > 0 else 0
+    except Exception:
+        pass
+
+    # EasyProxy process CPU (including child processes)
+    proxy_cpu_percent = cpu_percent
+    try:
+        # Use persistent Process objects: psutil.cpu_percent() needs a previous
+        # baseline reading, otherwise it always returns 0.0.
+        _cpu_proc = getattr(get_system_stats, "_cpu_proc", None)
+        if _cpu_proc is None:
+            _cpu_proc = psutil.Process(os.getpid())
+            get_system_stats._cpu_proc = _cpu_proc
+            _cpu_proc.cpu_percent(interval=None)  # establish baseline
+
+        _cpu_children = getattr(get_system_stats, "_cpu_children", {})
+        current_children = {c.pid: c for c in _cpu_proc.children(recursive=True)}
+        # Drop dead children and baseline new ones
+        for pid in list(_cpu_children.keys()):
+            if pid not in current_children:
+                del _cpu_children[pid]
+        for pid, child in current_children.items():
+            if pid not in _cpu_children:
+                _cpu_children[pid] = child
+                child.cpu_percent(interval=None)  # establish baseline
+
+        p_cpu = _cpu_proc.cpu_percent(interval=None)
+        for child in _cpu_children.values():
+            try:
+                p_cpu += child.cpu_percent(interval=None)
+            except Exception:
+                pass
+        get_system_stats._cpu_children = _cpu_children
+
+        cores = os.cpu_count() or 1
+        proxy_cpu_percent = min(100.0, p_cpu / cores)
+    except Exception:
+        pass
+
     return {
         "disk": {
             "total": disk_total,
@@ -999,11 +1055,24 @@ def get_system_stats():
         "cpu": {
             "percent": round(cpu_percent, 1)
         },
+        "proxy_cpu": {
+            "percent": round(proxy_cpu_percent, 1)
+        },
         "ram": {
             "total": ram_total,
             "used": ram_used,
             "free": ram_free,
             "percent": round(ram_percent, 1)
+        },
+        "proxy_ram": {
+            "total": proxy_ram_total,
+            "used": proxy_ram_used,
+            "free": max(0, proxy_ram_total - proxy_ram_used),
+            "percent": round(proxy_ram_percent, 1)
+        },
+        "net": {
+            "sent": round(net_sent, 1),
+            "recv": round(net_recv, 1)
         }
     }
 

@@ -654,7 +654,6 @@
                     </label>
                 </div>
                 <div class="btn-row">
-                    <button id="generateProxy" class="btn btn-primary">Generate URL</button>
                     <button id="copyProxyResult" class="btn btn-secondary">Copy</button>
                     <button id="playProxyResult" class="btn btn-primary" style="display: none; background: var(--secondary-gradient);">▶️ Test Stream</button>
                 </div>
@@ -761,7 +760,6 @@
                     </label>
                 </div>
                 <div class="btn-row">
-                    <button id="generateExtractor" class="btn btn-primary">Generate Extractor URL</button>
                     <button id="copyExtractorResult" class="btn btn-secondary">Copy</button>
                     <button id="playExtractorResult" class="btn btn-primary" style="display: none; background: var(--secondary-gradient);">▶️ Test Stream</button>
                 </div>
@@ -789,7 +787,6 @@
 }</textarea>
                 </div>
                 <div class="btn-row">
-                    <button id="generateBatch" class="btn btn-primary">Send Batch</button>
                     <button id="copyBatchResult" class="btn btn-secondary">Copy</button>
                 </div>
                 <div id="batchUrlList"></div>
@@ -1074,9 +1071,25 @@
             }
         }
 
-        document.getElementById('generateProxy').addEventListener('click', generateProxyUrl);
-        document.getElementById('generateExtractor').addEventListener('click', generateExtractorUrl);
-        document.getElementById('generateBatch').addEventListener('click', generateBatch);
+        const proxyInputs = ['proxyEndpoint', 'destinationUrl', 'requestHeaders', 'proxyRedirectStream', 'proxyBypassWarp', 'proxyBypassProxy', 'proxyDisableSSL', 'proxyNativeMpd'];
+        const extractorInputs = ['extractorHost', 'extractorUrl', 'extractorExtension', 'extractorRedirectStream', 'extractorBypassWarp', 'extractorBypassProxy', 'extractorDisableSSL'];
+
+        function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
+        const autoProxy = debounce(() => { if (document.getElementById('destinationUrl').value.trim()) generateProxyUrl(); }, 300);
+        const autoExtractor = debounce(() => { if (document.getElementById('extractorHost').value.trim() && document.getElementById('extractorUrl').value.trim()) generateExtractorUrl(); }, 300);
+
+        proxyInputs.forEach(id => {
+            const el = document.getElementById(id);
+            el.addEventListener('input', autoProxy);
+            if (el.type === 'checkbox' || el.tagName === 'SELECT') el.addEventListener('change', autoProxy);
+        });
+        extractorInputs.forEach(id => {
+            const el = document.getElementById(id);
+            el.addEventListener('input', autoExtractor);
+            if (el.type === 'checkbox' || el.tagName === 'SELECT') el.addEventListener('change', autoExtractor);
+        });
+        document.getElementById('apiPassword').addEventListener('input', () => { autoProxy(); autoExtractor(); });
+        document.getElementById('batchPayload').addEventListener('input', debounce(generateBatch, 500));
         document.getElementById('copyProxyResult').addEventListener('click', (e) => copyFrom('proxyResult', e.target));
         document.getElementById('copyExtractorResult').addEventListener('click', (e) => copyFrom('extractorResult', e.target));
         document.getElementById('copyBatchResult').addEventListener('click', (e) => copyFrom('batchResult', e.target));

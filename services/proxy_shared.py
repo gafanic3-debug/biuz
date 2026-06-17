@@ -44,7 +44,6 @@ from config import (
     API_PASSWORD,
     check_password,
     get_client_ip,
-    VERSION_MODE,
     APP_VERSION,
     BYPASS_WARP_CONTEXT,
     BYPASS_PROXIES_CONTEXT,

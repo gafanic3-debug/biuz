@@ -31,7 +31,7 @@ class MPDToHLSConverter:
         
         header_params = []
         for param in params.split('&'):
-            if param.startswith('h_') or param.startswith('api_password=') or param.startswith('clearkey=') or param.startswith('ext='):
+            if param.startswith('h_') or param.startswith('api_password=') or param.startswith('clearkey=') or param.startswith('ext=') or param.startswith('warp=') or param.startswith('proxy='):
                 header_params.append(param)
         
         if header_params:
@@ -92,6 +92,9 @@ class MPDToHLSConverter:
                     
                     lines.append(f'#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="{audio_group_id}",NAME="{name}",LANGUAGE="{lang}",DEFAULT={default_attr},AUTOSELECT=YES,URI="{media_url}"')
                     has_audio = True
+
+            if has_audio:
+                lines[1] = '#EXT-X-VERSION:4'
 
             # --- GESTIONE VIDEO (EXT-X-STREAM-INF) ---
             # Calcola max height per forzare qualità massima (fix iOS/Stremio)
@@ -275,6 +278,7 @@ class MPDToHLSConverter:
                         header_params = self._extract_header_params(params)
                         proxy_init_url = f"{proxy_base}/segment/init.mp4?base_url={encoded_init_url}{header_params}"
                         lines.append(f'#EXT-X-MAP:URI="{proxy_init_url}"')
+                        lines[1] = '#EXT-X-VERSION:6'
 
                 # --- SEGMENT TIMELINE ---
                 segment_timeline = segment_template.find('mpd:SegmentTimeline', self.ns)

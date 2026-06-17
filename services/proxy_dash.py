@@ -177,7 +177,11 @@ class HLSProxyDashMixin:
 
             # ✅ Use pooled session for better performance
             proxy_used = None
-            forced_proxy = request.query.get("proxy") or None
+            raw_proxy = request.query.get("proxy") or None
+            forced_proxy = raw_proxy
+            if raw_proxy and raw_proxy.lower() == "off":
+                forced_proxy = None
+                _shared.BYPASS_PROXIES_CONTEXT.set(True)
             bypass_warp = request.query.get("warp", "").lower() == "off"
 
             _GLOBAL_PROXIES = _shared.GLOBAL_PROXIES

@@ -782,16 +782,12 @@
                         <div class="url-list-empty" id="urlListEmpty">
                             <div class="url-list-empty-icon">📋</div>
                             <p>No playlists added</p>
-                            <small>Enter a URL and click + to add</small>
+                            <small>Enter a URL and click + to add - playlist URL auto-generates</small>
                         </div>
                     </div>
                 </div>
 
                 <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
-                    <button id="generateBtn" class="btn btn-primary" disabled>
-                        <span>⚡</span>
-                        <span>Generate Playlist</span>
-                    </button>
                     <button id="clearBtn" class="btn btn-secondary">
                         <span>🗑️</span>
                         <span>Clear All</span>
@@ -809,28 +805,10 @@
                     <div class="result-url-label">Generated URL</div>
                     <div class="result-url" id="resultUrl">—</div>
 
-                    <div class="loading-indicator" id="loadingIndicator">
-                        <div class="spinner"></div>
-                        <span>Fetching playlist data...</span>
-                    </div>
-
-                    <div class="code-block" id="codeBlock">
-                        <div class="code-block-empty" id="codeBlockEmpty">
-                            <div class="code-block-empty-icon">📄</div>
-                            <p>Playlist content will appear here</p>
-                            <small>Add URLs and click Generate to fetch the combined M3U8</small>
-                        </div>
-                        <code id="codeContent" style="display:none;"></code>
-                    </div>
-
                     <div class="result-actions">
-                        <button id="copyBtn" class="btn btn-secondary btn-sm" disabled>
+                        <button id="copyBtn" class="btn btn-secondary btn-sm">
                             <span>📋</span>
                             <span>Copy to Clipboard</span>
-                        </button>
-                        <button id="downloadBtn" class="btn btn-success btn-sm" disabled>
-                            <span>⬇️</span>
-                            <span>Download</span>
                         </button>
                     </div>
                 </div>
@@ -914,23 +892,16 @@
         class PlaylistBuilder {
             constructor() {
                 this.urls = [];
-                this.playlistContent = '';
                 this.elements = {
                     urlInput: document.getElementById('urlInput'),
                     apiPassword: document.getElementById('apiPasswordInput'),
                     addBtn: document.getElementById('addBtn'),
-                    generateBtn: document.getElementById('generateBtn'),
                     clearBtn: document.getElementById('clearBtn'),
                     urlList: document.getElementById('urlList'),
                     urlListEmpty: document.getElementById('urlListEmpty'),
                     urlCount: document.getElementById('urlCount'),
                     resultUrl: document.getElementById('resultUrl'),
-                    codeBlock: document.getElementById('codeBlock'),
-                    codeContent: document.getElementById('codeContent'),
-                    codeBlockEmpty: document.getElementById('codeBlockEmpty'),
-                    loadingIndicator: document.getElementById('loadingIndicator'),
                     copyBtn: document.getElementById('copyBtn'),
-                    downloadBtn: document.getElementById('downloadBtn'),
                     toast: document.getElementById('toast'),
                 };
                 this.bindEvents();
@@ -941,11 +912,9 @@
                 this.elements.urlInput.addEventListener('keydown', (e) => {
                     if (e.key === 'Enter') { e.preventDefault(); this.addUrl(); }
                 });
-                this.elements.generateBtn.addEventListener('click', () => this.generate());
                 this.elements.clearBtn.addEventListener('click', () => this.clearAll());
-                this.elements.copyBtn.addEventListener('click', () => this.copyContent());
-                this.elements.downloadBtn.addEventListener('click', () => this.downloadContent());
-                this.elements.apiPassword.addEventListener('input', () => this.updateGenerateUrl());
+                this.elements.copyBtn.addEventListener('click', () => this.copyUrl());
+                this.elements.apiPassword.addEventListener('input', () => { this.updateGenerateUrl(); if (this.urls.length) this.generate(); });
             }
 
             addUrl() {
@@ -964,6 +933,7 @@
                 this.elements.urlInput.focus();
                 this.renderList();
                 this.updateGenerateUrl();
+                this.generate();
                 this.elements.addBtn.classList.add('pulse-success');
                 setTimeout(() => this.elements.addBtn.classList.remove('pulse-success'), 500);
             }
@@ -979,6 +949,7 @@
                 this.urls.splice(index, 1);
                 this.renderList();
                 this.updateGenerateUrl();
+                if (this.urls.length) this.generate();
             }
 
             renderList() {
@@ -992,12 +963,10 @@
                     list.innerHTML = '';
                     list.appendChild(empty);
                     empty.style.display = 'flex';
-                    this.elements.generateBtn.disabled = true;
                     return;
                 }
 
                 empty.style.display = 'none';
-                this.elements.generateBtn.disabled = false;
                 list.innerHTML = '';
 
                 this.urls.forEach((item, i) => {
@@ -1036,7 +1005,7 @@
                             const idx = parseInt(e.target.dataset.index);
                             this.urls[idx][opt] = e.target.checked;
                             e.target.closest('.url-item-option').classList.toggle('active', e.target.checked);
-                            this.updateGenerateUrl();
+                            this.generate();
                         });
                     });
                     list.appendChild(el);
@@ -1092,8 +1061,11 @@
             updateGenerateUrl() {
                 if (this.urls.length === 0) {
                     this.elements.resultUrl.textContent = '—';
-                    return;
                 }
+            }
+
+            async             generate() {
+                if (this.urls.length === 0) return;
                 const url = this.buildPlaylistUrl();
                 const hasMpd = this.urls.some(p => p.url.toLowerCase().includes('.mpd'));
                 if (hasMpd) {
@@ -1101,109 +1073,20 @@
                 } else {
                     this.elements.resultUrl.textContent = url;
                 }
+                this.showToast('Playlist URL generated', 'success');
             }
 
-            async generate() {
-                if (this.urls.length === 0) return;
-
-                const hasMpd = this.urls.some(p => p.url.toLowerCase().includes('.mpd'));
-                const url = this.buildPlaylistUrl();
-
-                if (hasMpd) {
-                    this.setLoading(true);
-                    this.clearResult();
-                    const lines = [];
-                    for (const mpdUrl of url.split('\n')) {
-                        try {
-                            const resp = await fetch(mpdUrl);
-                            const text = resp.ok ? await resp.text() : `HTTP ${resp.status}: ${await resp.text().catch(() => '')}`;
-                            lines.push(`# === ${mpdUrl.split('?d=')[1] ? decodeURIComponent(mpdUrl.split('?d=')[1].split('&')[0]) : mpdUrl} ===`);
-                            lines.push(text);
-                        } catch (err) {
-                            lines.push(`# ERROR: ${err.message}`);
-                        }
-                    }
-                    this.playlistContent = lines.join('\n');
-                    this.setResult(this.playlistContent);
-                    this.elements.copyBtn.disabled = false;
-                    this.elements.downloadBtn.disabled = false;
-                    this.showToast('MPD playlists fetched', 'success');
-                    this.setLoading(false);
-                    return;
-                }
-
-                this.setLoading(true);
-                this.clearResult();
-
+            async copyUrl() {
+                const url = this.elements.resultUrl.textContent;
+                if (!url || url === '—') return;
                 try {
-                    const response = await fetch(url);
-                    if (!response.ok) {
-                        const errText = await response.text().catch(() => 'Unknown error');
-                        throw new Error(`HTTP ${response.status}: ${errText}`);
-                    }
-                    const text = await response.text();
-                    this.playlistContent = text;
-                    this.setResult(text);
-                    this.elements.copyBtn.disabled = false;
-                    this.elements.downloadBtn.disabled = false;
-                    this.showToast('Playlist fetched successfully', 'success');
-                } catch (err) {
-                    this.showResultError(`Failed to fetch playlist: ${err.message}`);
-                    this.playlistContent = '';
-                    this.elements.copyBtn.disabled = true;
-                    this.elements.downloadBtn.disabled = true;
-                } finally {
-                    this.setLoading(false);
-                }
-            }
-
-            setLoading(active) {
-                this.elements.loadingIndicator.classList.toggle('active', active);
-                this.elements.generateBtn.disabled = active || this.urls.length === 0;
-                if (active) {
-                    this.elements.generateBtn.textContent = 'Fetching...';
-                } else {
-                    this.elements.generateBtn.innerHTML = '<span>⚡</span><span>Generate Playlist</span>';
-                }
-            }
-
-            clearResult() {
-                this.elements.codeContent.style.display = 'none';
-                this.elements.codeContent.textContent = '';
-                this.elements.codeBlockEmpty.style.display = 'flex';
-                this.elements.codeBlockEmpty.innerHTML = `
-                    <div class="code-block-empty-icon">⏳</div>
-                    <p>Fetching playlist...</p>
-                `;
-            }
-
-            setResult(text) {
-                this.elements.codeBlockEmpty.style.display = 'none';
-                this.elements.codeContent.textContent = text;
-                this.elements.codeContent.style.display = 'block';
-            }
-
-            showResultError(msg) {
-                this.elements.codeBlockEmpty.style.display = 'flex';
-                this.elements.codeBlockEmpty.innerHTML = `
-                    <div class="code-block-empty-icon">❌</div>
-                    <p>Error</p>
-                    <small>${this.escapeHtml(msg)}</small>
-                `;
-                this.elements.codeContent.style.display = 'none';
-                this.elements.codeContent.textContent = '';
-            }
-
-            async copyContent() {
-                if (!this.playlistContent) return;
-                try {
-                    await navigator.clipboard.writeText(this.playlistContent);
-                    this.showToast('Copied to clipboard', 'success');
+                    await navigator.clipboard.writeText(url);
+                    this.showToast('URL copied to clipboard', 'success');
                     this.elements.copyBtn.classList.add('pulse-success');
                     setTimeout(() => this.elements.copyBtn.classList.remove('pulse-success'), 500);
                 } catch {
                     const ta = document.createElement('textarea');
-                    ta.value = this.playlistContent;
+                    ta.value = url;
                     ta.style.position = 'fixed';
                     ta.style.left = '-9999px';
                     ta.style.top = '-9999px';
@@ -1211,40 +1094,15 @@
                     ta.select();
                     document.execCommand('copy');
                     document.body.removeChild(ta);
-                    this.showToast('Copied to clipboard', 'success');
+                    this.showToast('URL copied to clipboard', 'success');
                 }
-            }
-
-            downloadContent() {
-                if (!this.playlistContent) return;
-                const blob = new Blob([this.playlistContent], { type: 'application/vnd.apple.mpegurl' });
-                const a = document.createElement('a');
-                a.href = URL.createObjectURL(blob);
-                a.download = 'combined-playlist.m3u8';
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                URL.revokeObjectURL(a.href);
-                this.showToast('Download started', 'success');
             }
 
             clearAll() {
                 this.urls = [];
-                this.playlistContent = '';
                 this.renderList();
                 this.updateGenerateUrl();
                 this.elements.resultUrl.textContent = '—';
-                this.elements.codeContent.style.display = 'none';
-                this.elements.codeContent.textContent = '';
-                this.elements.codeBlockEmpty.style.display = 'flex';
-                this.elements.codeBlockEmpty.innerHTML = `
-                    <div class="code-block-empty-icon">📄</div>
-                    <p>Playlist content will appear here</p>
-                    <small>Add URLs and click Generate to fetch the combined M3U8</small>
-                `;
-                this.elements.copyBtn.disabled = true;
-                this.elements.downloadBtn.disabled = true;
-                this.elements.generateBtn.disabled = true;
                 this.showToast('List cleared', 'info');
             }
 

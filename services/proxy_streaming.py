@@ -156,6 +156,10 @@ class HLSProxyStreamingMixin:
             # ✅ Use pooled session with automatic retry failover
             bypass_warp = request.query.get("warp", "").lower() == "off"
             forced_proxy = request.query.get("proxy") or None
+            if forced_proxy and forced_proxy.lower() == "off":
+                forced_proxy = None
+                _shared.BYPASS_PROXIES_CONTEXT.set(True)
+                logger.debug(f"🔍 [Segment-DEBUG] proxy=off detected, BYPASS_PROXIES_CONTEXT=True, bypass_warp={bypass_warp}")
 
             current_proxy = forced_proxy
             attempts = 2 if forced_proxy else 1
@@ -261,6 +265,9 @@ class HLSProxyStreamingMixin:
         """Effettua il proxy dello stream con gestione manifest e AES-128"""
         if bypass_warp is None:
             bypass_warp = request.query.get("warp", "").lower() == "off"
+        bypass_proxies = request.query.get("proxy", "").lower() == "off"
+        if bypass_proxies:
+            _shared.BYPASS_PROXIES_CONTEXT.set(True)
         if force_direct is None:
             force_direct = self._should_force_direct_from_query(request)
         else:
@@ -853,6 +860,7 @@ class HLSProxyStreamingMixin:
                         no_bypass=request.query.get("no_bypass") == "1",
                         shorten_url_func=self.shorten_hls_url if use_short_hls_urls else None,
                         bypass_warp=bypass_warp,
+                        bypass_proxies=bypass_proxies,
                         disable_ssl=disable_ssl,
                         selected_proxy=forced_proxy, # ✅ PASSA IL PROXY FORZATO
                         force_direct=force_direct,
@@ -943,6 +951,7 @@ class HLSProxyStreamingMixin:
                         clearkey_param,
                         api_password,
                         bypass_warp=bypass_warp,
+                        bypass_proxies=bypass_proxies,
                     )
 
                     return web.Response(
@@ -1317,8 +1326,15 @@ class HLSProxyStreamingMixin:
 
             # Get proxy-enabled session for segment fetches
             bypass_warp = request.query.get("warp", "").lower() == "off"
+            forced_proxy = request.query.get("proxy") or None
+            if forced_proxy and forced_proxy.lower() == "off":
+                forced_proxy = None
+                _shared.BYPASS_PROXIES_CONTEXT.set(True)
+            logger.debug(f"🔍 [Decrypt-DEBUG] bypass_warp={bypass_warp}, forced_proxy={forced_proxy}, warp_param='{request.query.get('warp', 'NOT_FOUND')}'")
+            proxy_from_config = get_proxy_for_url(url, bypass_warp=bypass_warp)
+            logger.debug(f"🔍 [Decrypt-DEBUG] get_proxy_for_url returned: {proxy_from_config}")
             segment_session, segment_proxy = await self._get_proxy_session(
-                url, bypass_warp=bypass_warp
+                url, bypass_warp=bypass_warp, forced_proxy=forced_proxy
             )
             if segment_proxy:
                 logger.info(f"📡 [Decrypt] Using session via proxy: {segment_proxy}")
