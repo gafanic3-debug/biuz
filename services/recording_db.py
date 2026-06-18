@@ -151,6 +151,15 @@ class RecordingDB:
             logger.debug(f"Deleted recording entry: {recording_id}")
         return deleted
 
+    def is_pid_running(self, pid: int) -> bool:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except OSError:
+            return True
+        return True
+
     def get_old_recordings(self, days: int) -> List[Dict[str, Any]]:
         from datetime import timedelta
         cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
