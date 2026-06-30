@@ -6,7 +6,9 @@ byparr/
 /scratch
 /.shared_chromium_profile
 dlstreams_activity.txt
-/scripts
+/scripts/*
+# keep scripts required at runtime in the image
+!/scripts/embedst_runner.mjs
 config.json
 /downloaded_files
 /cache

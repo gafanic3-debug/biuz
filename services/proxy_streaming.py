@@ -209,7 +209,7 @@ class HLSProxyStreamingMixin:
                         response_headers[header] = resp.headers[header]
 
                 # Forza il content-type e aggiunge Content-Disposition per .ts
-                set_response_header(response_headers, "Content-Type", "video/MP2T")
+                set_response_header(response_headers, "Content-Type", "video/mp2t")
                 set_response_header(
                     response_headers,
                     "Content-Disposition",
@@ -472,7 +472,11 @@ class HLSProxyStreamingMixin:
                         async def iter_any(self):
                             async for chunk in self.c_resp.aiter_content():
                                 yield chunk
-                        async def read(self): return await self.c_resp.acontent()
+                        async def read(self, n=-1):
+                            # curl_cffi's acontent() returns the full body and ignores size.
+                            # Match aiohttp's content.read(n) signature so error-path callers
+                            # (e.g. resp.content.read(4096)) don't raise TypeError.
+                            return await self.c_resp.acontent()
 
                     class MockResp:
                         def __init__(self, c_resp):
@@ -646,7 +650,7 @@ class HLSProxyStreamingMixin:
                 )
 
                 if is_direct_media_stream or is_segment_like:
-                    seg_content_type = "video/MP2T" if is_segment_like else content_type
+                    seg_content_type = "video/mp2t" if is_segment_like else content_type
                     response_headers = {
                         "Content-Type": seg_content_type,
                         "Access-Control-Allow-Origin": "*",
@@ -883,7 +887,7 @@ class HLSProxyStreamingMixin:
                 ) and "video/mp2t" not in response_headers.get(
                     "content-type", ""
                 ).lower():
-                    set_response_header(response_headers, "Content-Type", "video/MP2T")
+                    set_response_header(response_headers, "Content-Type", "video/mp2t")
                 elif (
                     stream_url.endswith(".vtt")
                     or stream_url.endswith(".webvtt")
@@ -1088,7 +1092,7 @@ class HLSProxyStreamingMixin:
                     )
                     return None
                 body = await fr_resp.read()
-                rh = {"Access-Control-Allow-Origin": "*", "Content-Type": "video/MP2T"}
+                rh = {"Access-Control-Allow-Origin": "*", "Content-Type": "video/mp2t"}
                 logger.info("✅ Segment recovered via re-extract: %s", seg_filename)
 
                 # Save refreshed CDN base URL for this stream_key so subsequent
@@ -1277,7 +1281,7 @@ class HLSProxyStreamingMixin:
                     ts_content = combined_content
                     content_type = "video/mp4"
                 else:
-                    content_type = "video/MP2T"
+                    content_type = "video/mp2t"
                     logger.info("⚡ Remuxed fMP4 -> TS")
             else:
                 logger.debug("⏩ Remuxing disabled, serving raw fMP4")

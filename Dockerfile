@@ -15,36 +15,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gnupg \
     gpg \
     tar \
+    nodejs \
     && curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg | gpg --yes --dearmor --output /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg \
     && echo "deb [signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ bookworm main" | tee /etc/apt/sources.list.d/cloudflare-client.list \
     && apt-get update && apt-get install -y --no-install-recommends \
     cloudflare-warp \
     netcat-openbsd \
     ffmpeg \
-    chromium \
-    xvfb \
-    python3-tk \
-    python3-dev \
-    libnss3 \
-    libatk1.0-0 \
-    libatk-bridge2.0-0 \
-    libcups2 \
-    libdrm2 \
-    libxkbcommon0 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxfixes3 \
-    libxrandr2 \
-    libgbm1 \
-    libasound2 \
-    libpango-1.0-0 \
-    libcairo2 \
-    libatspi2.0-0 \
-    libxshmfence1 \
-    libglu1-mesa \
     ca-certificates \
-    fonts-liberation \
-    chromium-driver \
     && rm -rf /var/lib/apt/lists/*
 
 # Optional userspace WARP tools. They allow WARP as a local SOCKS5 proxy
@@ -81,17 +59,12 @@ RUN set -eux; \
     chmod +x /usr/local/bin/speedtest; \
     rm -f /tmp/speedtest.tgz
 
-# 2. Environment Settings
-ENV PYTHONPATH=/app
-ENV CHROME_EXE_PATH=/usr/bin/chromium
-ENV CHROME_BIN=/usr/bin/chromium
-ENV CHROME_DRIVER_PATH=/usr/bin/chromedriver
-
-
-# 4. EasyProxy Dependencies
+# 2. EasyProxy Dependencies
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+# 3. Environment Settings
+ENV PYTHONPATH=/app
 
 # Copia esplicita
 COPY . .
@@ -101,7 +74,7 @@ RUN chmod +x entrypoint.sh
 # 5. Metadata & Ports
 LABEL org.opencontainers.image.title="EasyProxy Monolith"
 LABEL org.opencontainers.image.description="All-in-one HLS Proxy with integrated CF Turnstile Solver"
-EXPOSE 7860 8191
+EXPOSE 7860
 VOLUME ["/data"]
 
 # 6. Execution

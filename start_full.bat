@@ -18,13 +18,8 @@ set PYTHONUNBUFFERED=1
 echo Checking EasyProxy dependencies...
 python -m pip install -r requirements.txt --quiet
 python -m pip install pycryptodome --quiet
-python -m playwright install chromium
 
-:: --- 3. SeleniumBase Driver Setup ---
-echo Ensuring SeleniumBase drivers are set up...
-python -m seleniumbase install chromedriver
-
-:: --- 5. Start EasyProxy ---
+:: --- 3. Start EasyProxy ---
 echo.
 echo Starting EasyProxy Main App...
 echo -------------------------------------

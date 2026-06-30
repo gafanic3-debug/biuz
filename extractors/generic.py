@@ -11,11 +11,11 @@ class GenericHLSExtractor(BaseExtractor):
         self._original_get_session = self._get_session
 
     async def _get_session(self, url: str = None):
-        if self.session is None or self.session.closed:
-            # We use the BaseExtractor logic but can inject specific settings if needed
-            # For Generic, we often need to disable SSL verification
-            return await super()._get_session(url)
-        return self.session
+        # ✅ FIX: Delega sempre al genitore per ricalcolare il proxy corrente.
+        # L'override precedente saltava la ri-evaluazione se la sessione esisteva,
+        # causando l'uso di un _session_proxy stantio (es. WARP) anche quando
+        # bypass_warp=True in una richiesta successiva.
+        return await super()._get_session(url)
 
     async def extract(self, url, **kwargs):
         # ✅ AGGIORNATO: Rimossa validazione estensioni su richiesta utente.

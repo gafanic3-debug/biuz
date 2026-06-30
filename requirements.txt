@@ -8,11 +8,8 @@ lxml
 python-socks
 pycryptodome
 pydash2hls
-playwright
 Pillow
 curl_cffi
 cloudscraper
 brotli
-seleniumbase
-pyvirtualdisplay
 psutil

@@ -17,7 +17,6 @@ A powerful, lightweight proxy server designed to handle HLS, M3U8, and DASH (MPD
 - **📼 Integrated DVR**: Record live streams while watching or schedule background recordings.
 - **🛠️ Playlist Builder**: Web interface to combine, manage, and proxy entire M3U playlists.
 - **☁️ Cloud Ready**: Optimized for HuggingFace, Render, Koyeb, and other free-tier platforms.
-- **🛡️ Cloudflare Bypass**: Integrated with CF Turnstile Solver for bot protection bypass.
 
 ---
 

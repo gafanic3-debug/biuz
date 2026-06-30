@@ -10,7 +10,7 @@ import urllib.request
 from dotenv import load_dotenv
 from config_store import get as _cfg_get, set as _cfg_set, get_all as _cfg_get_all
 
-APP_VERSION = "2.9.25"
+APP_VERSION = "2.9.33"
 
 
 def get_extractor_proxies(extractor_name: str) -> list:
@@ -620,15 +620,32 @@ def get_proxy_for_url(
     # Explicit GLOBAL_PROXY wins over WARP. warp=off disables only WARP, not configured proxies.
     proxy = SELECTED_PROXY_CONTEXT.get()
     if proxy and is_proxy_alive(proxy):
-        return proxy
+        # ✅ FIX: Se bypass_warp=True e il proxy selezionato è WARP, saltalo.
+        # get_preferred_proxy_for_url (chiamato dagli estrattori) setta
+        # SELECTED_PROXY_CONTEXT a WARP, ma bypass_warp deve avere la priorità.
+        if bypass_warp and _WARP_PROXY_URL and proxy == _WARP_PROXY_URL:
+            logger.debug(
+                "Skipping WARP from SELECTED_PROXY_CONTEXT because bypass_warp=True"
+            )
+        else:
+            return proxy
 
     # Try next alive proxy from the same source list (extractor, proxy_file, etc.)
     proxy = _next_from_source(proxy)
     if proxy:
-        SELECTED_PROXY_CONTEXT.set(proxy)
-        return proxy
+        # ✅ FIX: Se bypass_warp=True e il proxy è WARP, saltalo e continua
+        if bypass_warp and _WARP_PROXY_URL and proxy == _WARP_PROXY_URL:
+            logger.debug(
+                "Skipping WARP from _next_from_source because bypass_warp=True"
+            )
+        else:
+            SELECTED_PROXY_CONTEXT.set(proxy)
+            return proxy
 
     proxy = random.choice(global_proxies) if global_proxies else None
+    # ✅ FIX: Se bypass_warp=True e il proxy pescato da GLOBAL_PROXIES è WARP, ignoriamo
+    if bypass_warp and _WARP_PROXY_URL and proxy == _WARP_PROXY_URL:
+        proxy = None
     if proxy:
         SELECTED_PROXY_CONTEXT.set(proxy)
         STRICT_PROXY_CONTEXT.set(False)

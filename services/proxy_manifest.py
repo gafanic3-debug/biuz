@@ -173,6 +173,22 @@ class HLSProxyManifestHandlerMixin:
                     selected_proxy = urllib.parse.unquote(raw_proxy)
                     if "://" not in selected_proxy and "%3a" in selected_proxy.lower():
                         selected_proxy = urllib.parse.unquote(selected_proxy)
+                    # ✅ FIX: Se bypass_warp è True e il proxy selezionato è WARP,
+                    # ignoralo per evitare che un _session_proxy stantio su un estrattore
+                    # cache-forzato (es. GenericHLSExtractor) prevalga su warp=off.
+                    if bypass_warp and _shared.WARP_PROXY_URL and selected_proxy == _shared.WARP_PROXY_URL:
+                        logger.debug(
+                            "Ignoring stale WARP _session_proxy from extractor because bypass_warp=True"
+                        )
+                        selected_proxy = None
+
+                # ✅ FIX: Resetta SELECTED_PROXY_CONTEXT al valore effettivo.
+                # get_preferred_proxy_for_url (chiamato dall'estrattore in _get_session)
+                # setta questo context a un proxy (WARP, globale, o extractor-specific), ma
+                # dopo aver deciso selected_proxy vogliamo che le chiamate successive a
+                # get_proxy_for_url (es. da _proxy_stream) PARTANO DA QUESTO STATO, non
+                # dal proxy scelto dall'estrattore.
+                SELECTED_PROXY_CONTEXT.set(selected_proxy)
 
                 if selected_proxy:
                     logger.debug(f"🎯 Final selected proxy for manifest: {selected_proxy}")

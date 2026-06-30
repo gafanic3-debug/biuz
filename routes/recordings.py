@@ -222,7 +222,7 @@ def setup_recording_routes(app, recording_manager):
         filename = os.path.basename(file_path)
 
         # Determine content type based on extension
-        content_type = "video/MP2T"
+        content_type = "video/mp2t"
         if filename.endswith('.mp4'):
             content_type = "video/mp4"
         elif filename.endswith('.mkv'):
@@ -267,7 +267,7 @@ def setup_recording_routes(app, recording_manager):
             return web.json_response({"error": "Access denied"}, status=403)
 
         # Determine content type based on extension
-        content_type = "video/MP2T"
+        content_type = "video/mp2t"
         if file_path.endswith('.mp4'):
             content_type = "video/mp4"
         elif file_path.endswith('.mkv'):

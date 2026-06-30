@@ -62,9 +62,7 @@ async def resolve_extractor(self, url: str, request_headers: dict, host: str = N
         proxy_lookup_target,
         bypass_warp=bypass_warp,
     )
-            # Normalize host → extractor name for env var lookup (e.g. "city" → "cinemacity")
-            x = {"city": "cinemacity"}.get(host, host)
-            proxy_list = _build_proxy_list(proxy, x)
+            proxy_list = _build_proxy_list(proxy, host)
 
             if host == "vavoo":
                 if key not in self.extractors:
@@ -154,18 +152,7 @@ async def resolve_extractor(self, url: str, request_headers: dict, host: str = N
                         request_headers, proxies=proxy_list
                     )
                 return self.extractors[key]
-            elif host == "maxstream":
-                if key not in self.extractors:
-                    proxy_candidates = _build_proxy_list(None, "maxstream")
-                    for candidate in ("maxstream.video", "maxstream"):
-                        p = get_proxy_for_url(
-                            candidate, bypass_warp=bypass_warp)
-                        if p and p not in proxy_candidates:
-                            proxy_candidates.append(p)
-                    self.extractors[key] = MaxstreamExtractor(
-                        request_headers, proxies=proxy_candidates
-                    )
-                return self.extractors[key]
+
             elif host in ["okru", "ok.ru"]:
                 key = "okru_direct" if bypass_warp else "okru"
                 if key not in self.extractors:
@@ -179,12 +166,7 @@ async def resolve_extractor(self, url: str, request_headers: dict, host: str = N
                         request_headers, proxies=proxy_list
                     )
                 return self.extractors[key]
-            elif host == "deltabit":
-                if key not in self.extractors:
-                    self.extractors[key] = DeltabitExtractor(
-                        request_headers, proxies=proxy_list, bypass_warp=bypass_warp
-                    )
-                return self.extractors[key]
+
             elif host == "streamhg":
                 if key not in self.extractors:
                     self.extractors[key] = StreamHGExtractor(
@@ -255,24 +237,10 @@ async def resolve_extractor(self, url: str, request_headers: dict, host: str = N
                         request_headers, proxies=proxy_list, bypass_warp=bypass_warp
                     )
                 return self.extractors[key]
-            elif host in ["embedsports", "streamed", "streamedpk"]:
-                key = "embedsports_direct" if bypass_warp else "embedsports"
+            elif host in ["embedst", "embedsports", "embed.st", "embedsports.top", "streamed", "streamed.pk"]:
+                key = "embedst_direct" if bypass_warp else "embedst"
                 if key not in self.extractors:
-                    self.extractors[key] = EmbedSportsExtractor(
-                        request_headers, proxies=proxy_list, bypass_warp=bypass_warp
-                    )
-                return self.extractors[key]
-            elif host in ["city", "cinemacity"]:
-                key = "cinemacity_direct" if bypass_warp else "cinemacity"
-                if key not in self.extractors:
-                    self.extractors[key] = CinemaCityExtractor(
-                        request_headers, proxies=proxy_list
-                    )
-                return self.extractors[key]
-            elif host in ["adn", "altadefinizione", "altadefinizionestreaming"]:
-                key = "adn_direct" if bypass_warp else "adn"
-                if key not in self.extractors:
-                    self.extractors[key] = AdnExtractor(
+                    self.extractors[key] = EmbedStExtractor(
                         request_headers, proxies=proxy_list, bypass_warp=bypass_warp
                     )
                 return self.extractors[key]
@@ -347,27 +315,7 @@ async def resolve_extractor(self, url: str, request_headers: dict, host: str = N
                     request_headers, proxies=proxy_list
                 )
             return self.extractors[key]
-        elif "cinemacity.cc" in url.lower():
-            key = "cinemacity_direct" if bypass_warp else "cinemacity"
-            proxy = get_proxy_for_url("cinemacity.cc", bypass_warp=bypass_warp)
-            proxy_list = _build_proxy_list(proxy, "cinemacity")
-            if key not in self.extractors:
-                self.extractors[key] = CinemaCityExtractor(
-                    request_headers, proxies=proxy_list
-                )
-            return self.extractors[key]
-        elif "embedsports.top/embed/" in url.lower():
-            key = "embedsports_direct" if bypass_warp else "embedsports"
-            proxy = get_proxy_for_url(
-        "embedsports.top",
-        bypass_warp=bypass_warp,
-    )
-            proxy_list = _build_proxy_list(proxy, "embedsports")
-            if key not in self.extractors:
-                self.extractors[key] = EmbedSportsExtractor(
-                    request_headers, proxies=proxy_list, bypass_warp=bypass_warp
-                )
-            return self.extractors[key]
+
         elif "mixdrop" in url or "m1xdrop" in url:
             key = "mixdrop_direct" if bypass_warp else "mixdrop"
             proxy = get_proxy_for_url("mixdrop", bypass_warp=bypass_warp)
@@ -502,19 +450,7 @@ async def resolve_extractor(self, url: str, request_headers: dict, host: str = N
                     request_headers, proxies=proxy_list
                 )
             return self.extractors[key]
-        elif "maxstream" in url:
-            key = "maxstream_direct" if bypass_warp else "maxstream"
-            proxy_list = _build_proxy_list(None, "maxstream")
-            for candidate in (url, "maxstream.video", "maxstream"):
-                proxy = get_proxy_for_url(
-                    candidate, bypass_warp=bypass_warp)
-                if proxy and proxy not in proxy_list:
-                    proxy_list.append(proxy)
-            if key not in self.extractors:
-                self.extractors[key] = MaxstreamExtractor(
-                    request_headers, proxies=proxy_list
-                )
-            return self.extractors[key]
+
         elif "ok.ru" in url or "odnoklassniki" in url:
             key = "okru_direct" if bypass_warp else "okru"
             proxy = get_proxy_for_url("ok.ru", bypass_warp=bypass_warp)
@@ -640,6 +576,15 @@ async def resolve_extractor(self, url: str, request_headers: dict, host: str = N
             if key not in self.extractors:
                 self.extractors[key] = Sports99Extractor(
                     request_headers, proxies=proxy_list
+                )
+            return self.extractors[key]
+        elif "embed.st/embed/" in url.lower() or "embedsports.top/embed/" in url.lower() or "streamed.pk/watch/" in url.lower():
+            key = "embedst_direct" if bypass_warp else "embedst"
+            proxy = get_proxy_for_url("embed.st", bypass_warp=bypass_warp)
+            proxy_list = _build_proxy_list(proxy, "embedst")
+            if key not in self.extractors:
+                self.extractors[key] = EmbedStExtractor(
+                    request_headers, proxies=proxy_list, bypass_warp=bypass_warp
                 )
             return self.extractors[key]
         else:

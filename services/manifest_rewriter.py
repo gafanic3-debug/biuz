@@ -330,11 +330,13 @@ class ManifestRewriter:
                 "Generic HLS: selected max bandwidth %s.",
                 highest_quality_stream["bandwidth"],
             )
-            # Warn if the CDN is serving an audio-only stream (no video codec)
+            # Warn if the CDN is serving an audio-only stream. Consider video proven either
+            # by an explicit CODECS= video entry or by a RESOLUTION= attribute (many CDNs
+            # omit CODECS while still serving video, so RESOLUTION is enough evidence).
             _selected_inf = highest_quality_stream["inf"]
             _has_video_codec = any(
                 vc in _selected_inf for vc in ("avc1", "hvc1", "dvh1", "hev1", "vp9", "av01")
-            )
+            ) or re.search(r"RESOLUTION=\d+x\d+", _selected_inf) is not None
             if not _has_video_codec:
                 logger.warning(
                     "HLS master manifest has no video codec in selected variant (CDN may be serving audio-only). "

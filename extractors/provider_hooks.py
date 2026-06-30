@@ -10,13 +10,11 @@ DYNAMIC_WARP_BYPASS_DOMAINS = (
     "strem.fun",
     "torrentio.strem.fun",
 )
-PROTECTED_CURL_DOMAINS = ("cinemacity.cc", "torrentio", "strem.fun")
+PROTECTED_CURL_DOMAINS = ("cinemacity.cc", "torrentio", "strem.fun", "strmd.st")
 MANIFEST_ONLY_CURL_DOMAINS = ("torrentio", "strem.fun")
 BROWSER_ACTIVITY_KEYS = (
     "dlstreams",
     "dlstreams_direct",
-    "embedsports",
-    "embedsports_direct",
 )
 
 

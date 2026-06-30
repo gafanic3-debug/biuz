@@ -10,7 +10,7 @@ import base64
 import hashlib
 import socket
 import config_store
-from utils.solver_manager import try_shutdown_idle_flaresolverr
+
 import services.proxy_shared as _shared
 from services.proxy_shared import (
     logger,
@@ -97,7 +97,7 @@ class HLSProxyCoreMixin:
                 self._renewed_cdn_token_atimes.pop(k, None)
                 logger.debug("🧹 Cleaned stale CDN token: %s", k[:8])
 
-            await try_shutdown_idle_flaresolverr()
+
 
     async def get_warp_status(self) -> str:
         """Returns WARP status and fetches real external IP through WARP proxy."""
